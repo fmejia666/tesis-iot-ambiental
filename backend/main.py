@@ -12,6 +12,7 @@ app.add_middleware(
     allow_methods=["*"],  # Permite POST, GET, OPTIONS, etc.
     allow_headers=["*"],  # Permite cualquier tipo de header
 )
+
 # --- MODELOS DE DATOS ---
 class LoginRequest(BaseModel):
     username: str
@@ -52,3 +53,15 @@ async def registrar_nodo(nodo: Nodo):
 @app.get("/nodos/estado", response_model=List[Nodo])
 async def obtener_nodos():
     return nodos_db
+
+# --- NUEVA RUTA: HISTORIAL DE DATOS (Agregada para Vercel) ---
+@app.get("/api/history")
+async def get_history(start_date: str = None, end_date: str = None):
+    # Retornamos datos simulados (mock) temporales para el Dashboard
+    # Una vez conectemos InfluxDB, esto se reemplazará con datos reales
+    return [
+        {"time": "08:00", "pm25": 12, "pm10": 30, "co2": 450, "temp": 22},
+        {"time": "12:00", "pm25": 18, "pm10": 48, "co2": 600, "temp": 26},
+        {"time": "16:00", "pm25": 25, "pm10": 55, "co2": 850, "temp": 28},
+        {"time": "20:00", "pm25": 14, "pm10": 35, "co2": 500, "temp": 20}
+    ]
