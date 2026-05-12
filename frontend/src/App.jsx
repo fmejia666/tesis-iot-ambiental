@@ -122,7 +122,7 @@ function HistoryView({ thresholds }) {
   const fetchHistory = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`http://127.0.0.1:8000/api/history?start_date=${startDate}&end_date=${endDate}`).catch(() => ({ json: () => [] }));
+      const response = await fetch(`https://tesis-iot-ambiental.onrender.com/api/history?start_date=${startDate}&end_date=${endDate}`).catch(() => ({ json: () => [] }));
       const data = await response.json();
       setHistoricalData(data);
     } catch (error) { console.error("Error obteniendo historial", error); }
