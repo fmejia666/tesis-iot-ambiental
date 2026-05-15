@@ -53,7 +53,6 @@ function MapResizer() {
 
 function DashboardView({ data, history, thresholds }) {
   const { metrics } = data;
-  // Coordenadas solicitadas por Farith para el sector Av. del Maestro
   const sensorLocation = [-0.1231680, -78.4925269]; 
 
   const pm25Risk = metrics.pm25_ugm3 > thresholds.pm25 ? 'danger' : (metrics.pm25_ugm3 > (thresholds.pm25 * 0.5) ? 'warning' : 'normal');
@@ -116,9 +115,11 @@ function DashboardView({ data, history, thresholds }) {
   );
 }
 
+// --- VISTA DE HISTORIAL (CORREGIDA CON SELECTOR Y TABLA) ---
 function HistoryView() {
   const [historicalData, setHistoricalData] = useState([]);
   const [range, setRange] = useState(24);
+  const [selectedMetric, setSelectedMetric] = useState('pm25'); // Nuevo: Selector de métrica
 
   const fetchHistory = async () => {
     try {
@@ -130,24 +131,51 @@ function HistoryView() {
 
   useEffect(() => { fetchHistory(); }, [range]);
 
+  // Función para descargar el reporte CSV
+  const downloadCSV = () => {
+    if (historicalData.length === 0) return alert("No hay datos disponibles");
+    const headers = "Fecha_Hora,PM25,CO2,Temperatura,Dispositivo\n";
+    const csv = historicalData.map(r => `${r.time},${r.pm25},${r.co2},${r.temp},${r.device}`).join("\n");
+    const blob = new Blob([headers + csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `HealthIoT_Reporte_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
-      <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex justify-between items-center">
-        <div className="flex items-center gap-4">
-          <Database className="text-blue-600" />
-          <select value={range} onChange={(e) => setRange(e.target.value)} className="font-bold text-gray-700 outline-none">
-            <option value={12}>Últimas 12h</option>
-            <option value={24}>Últimas 24h</option>
-            <option value={168}>Última Semana</option>
-          </select>
+      {/* Selector de periodo y métrica */}
+      <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex flex-wrap justify-between items-center gap-4">
+        <div className="flex gap-4">
+          <div className="flex items-center gap-2">
+            <Database className="text-blue-600" size={18} />
+            <select value={range} onChange={(e) => setRange(e.target.value)} className="font-bold text-gray-700 outline-none bg-gray-50 p-2 rounded-lg">
+              <option value={12}>Últimas 12h</option>
+              <option value={24}>Últimas 24h</option>
+              <option value={168}>Última Semana</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-2">
+            <Sliders className="text-purple-600" size={18} />
+            <select value={selectedMetric} onChange={(e) => setSelectedMetric(e.target.value)} className="font-bold text-gray-700 outline-none bg-gray-50 p-2 rounded-lg">
+              <option value="pm25">Visualizar PM 2.5</option>
+              <option value="co2">Visualizar CO2</option>
+              <option value="temp">Visualizar Temp</option>
+            </select>
+          </div>
         </div>
-        <button className="bg-green-600 text-white px-5 py-2 rounded-xl font-bold flex items-center gap-2">
-          <Download size={18} /> Exportar
+        <button onClick={downloadCSV} className="bg-green-600 text-white px-5 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-green-100">
+          <Download size={18} /> Descargar CSV
         </button>
       </div>
 
+      {/* Gráfica Histórica Dinámica */}
       <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
-        <h3 className="text-gray-500 text-sm font-bold uppercase mb-4 tracking-widest">Análisis de Tendencia</h3>
+        <h3 className="text-gray-500 text-sm font-black uppercase mb-4 tracking-widest">
+          Tendencia Histórica: {selectedMetric.toUpperCase()}
+        </h3>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={historicalData}>
@@ -158,18 +186,44 @@ function HistoryView() {
                 </linearGradient>
               </defs>
               <XAxis dataKey="time" hide />
-              <YAxis hide />
+              <YAxis tick={{fontSize: 12}} />
               <RechartsTooltip />
-              <Area type="monotone" dataKey="pm25" stroke="#3b82f6" fillOpacity={1} fill="url(#colorValue)" />
+              <Area type="monotone" dataKey={selectedMetric} stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
+      </div>
+
+      {/* Tabla de registros históricos */}
+      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest">
+            <tr>
+              <th className="p-6">Timestamp</th>
+              <th className="p-6">PM 2.5</th>
+              <th className="p-6">CO2</th>
+              <th className="p-6">Temperatura</th>
+              <th className="p-6">Nodo</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {historicalData.slice(0, 50).map((r, i) => (
+              <tr key={i} className="text-sm hover:bg-gray-50/50 transition-colors">
+                <td className="p-6 text-gray-500">{r.time}</td>
+                <td className="p-6 font-bold text-blue-600">{r.pm25} µg/m³</td>
+                <td className="p-6 font-bold text-orange-600">{r.co2} ppm</td>
+                <td className="p-6 font-bold text-purple-600">{r.temp}°C</td>
+                <td className="p-6 text-gray-400">{r.device}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
-// --- VISTA DE GESTIÓN (ACTUALIZADA CON CRUD COMPLETO) ---
+// --- VISTA DE GESTIÓN ---
 function SettingsView({ thresholds, updateThresholds }) {
   const [nodes, setNodes] = useState([]);
   const [editingNode, setEditingNode] = useState(null);
@@ -307,7 +361,7 @@ function DashboardUnificado({ thresholds, updateThresholds }) {
   if (!sensorInfo || !sensorInfo.current) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="animate-bounce text-blue-600 font-black text-4xl">HEALTH<span className="text-gray-300">IOT</span></div>
+        <div className="animate-bounce text-blue-600 font-black text-4xl tracking-tighter">HEALTH<span className="text-gray-300">IOT</span></div>
       </div>
     );
   }
@@ -318,7 +372,6 @@ function DashboardUnificado({ thresholds, updateThresholds }) {
         <div>
           <div className="p-10">
             <h1 className="text-3xl font-black text-gray-900 tracking-tighter">HEALTH<span className="text-blue-600">IOT</span></h1>
-            {/* Subtexto eliminado a petición de Farith */}
           </div>
           <nav className="px-6 space-y-3">
             <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-gray-400 hover:bg-gray-50'}`}>

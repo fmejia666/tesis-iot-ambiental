@@ -9,7 +9,7 @@ function Login() {
     e.preventDefault();
     
     try {
-        const respuesta = await fetch('https://tesis-iot-ambiental.onrender.com/auth/login', {
+        const respuesta = await fetch('https://tesis-iot-ambiental.onrender.com/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
