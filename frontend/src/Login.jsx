@@ -27,8 +27,7 @@ function Login() {
       localStorage.setItem('token', datos.access_token);
       setError('');
       alert('¡Autenticación exitosa!');
-      
-      // 2. EL TRUCO: Forzamos una recarga completa hacia la página principal
+  
       window.location.href = '/'; 
 
     } catch (err) {

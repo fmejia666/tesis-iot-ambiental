@@ -21,9 +21,9 @@ query_api = influx_client.query_api()
 # --- CONFIGURACIÓN AWS IOT CORE ---
 AWS_ENDPOINT = "a3efp99tqsedcx-ats.iot.us-east-2.amazonaws.com"
 TOPIC_TELEMETRIA = "utpl/telemetria"
-TOPIC_COMANDOS = "utpl/comandos/" # Prefijo para enviar órdenes a los nodos
+TOPIC_COMANDOS = "utpl/comandos/"
 
-app = FastAPI(title="Backend Monitoreo Ambiental UTPL - Control Center")
+app = FastAPI(title="Backend HealthIoT - UTPL")
 
 app.add_middleware(
     CORSMiddleware,
@@ -33,28 +33,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- MODELOS DE DATOS ---
+# --- MODELOS DE DATOS PARA VALIDACIÓN ---
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
 class Nodo(BaseModel):
     id: str
     ubicacion: str
-    estado: str  # "Activo", "Inactivo", "Mantenimiento"
+    estado: str  # Activo, Inactivo, Mantenimiento
+    bateria: Optional[int] = 100 # Nuevo campo para el dashboard
+    rssi: Optional[int] = -50    # Intensidad de señal WiFi
 
-# Simulación de base de datos de nodos (Para la sección de Gestión)
+# --- BASE DE DATOS VOLÁTIL DE NODOS ---
+# Aquí guardamos los nodos registrados. Para la tesis, esto simula una DB persistente.
 nodos_db = [
-    {"id": "MAESTRO-01", "ubicacion": "Av. del Maestro y 18 de Nov.", "estado": "Activo"},
-    {"id": "UTPL-02", "ubicacion": "Campus UTPL - Entrada Principal", "estado": "Mantenimiento"}
+    {"id": "NODE-001", "ubicacion": "Av. del Maestro", "estado": "Activo", "bateria": 95, "rssi": -65},
+    {"id": "CENTRO-01", "ubicacion": "Plaza Central", "estado": "Activo", "bateria": 80, "rssi": -70}
 ]
 
-# --- LÓGICA MQTT ---
+# --- LÓGICA DE COMUNICACIÓN MQTT ---
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("✅ CONECTADO A AWS - SISTEMA DE CONTROL ACTIVO")
+        print("✅ CONEXIÓN EXITOSA AL BROKER DE AWS")
         client.subscribe(TOPIC_TELEMETRIA)
 
 def on_message(client, userdata, msg):
     try:
+        # Decodificamos el JSON que llega del ESP32
         payload = json.loads(msg.payload.decode('utf-8'))
-        # GUARDAR EN INFLUXDB
+        
+        # Mapeo de datos hacia InfluxDB para la persistencia temporal
         point = Point("calidad_aire") \
             .tag("device", payload.get("sensor_id", "Nodo_Desconocido")) \
             .field("pm25", float(payload.get("pm25", 0))) \
@@ -63,48 +72,78 @@ def on_message(client, userdata, msg):
         
         write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
     except Exception as e:
-        print(f"❌ Error procesando telemetría: {e}")
+        print(f"❌ Error en la ingesta de datos: {e}")
 
-mqtt_client = mqtt.Client(client_id="Backend_UTPL_Control")
+mqtt_client = mqtt.Client(client_id="Backend_HealthIoT_Service")
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
 
+# Configuración de seguridad con certificados X.509
 try:
-    mqtt_client.tls_set(ca_certs="certs/root-CA.pem", certfile="certs/certificate.pem.crt", keyfile="certs/private.pem.key", tls_version=ssl.PROTOCOL_TLSv1_2)
+    mqtt_client.tls_set(
+        ca_certs="certs/root-CA.pem", 
+        certfile="certs/certificate.pem.crt", 
+        keyfile="certs/private.pem.key", 
+        tls_version=ssl.PROTOCOL_TLSv1_2
+    )
 except:
-    print("⚠️ Error cargando certificados de seguridad")
+    print("⚠️ Revisa la carpeta de certificados pem")
 
 @app.on_event("startup")
 def startup_event():
     mqtt_client.connect(AWS_ENDPOINT, 8883, 60)
     mqtt_client.loop_start()
 
-# --- RUTAS DE ADMINISTRACIÓN DE NODOS ---
+# --- ENDPOINTS DE AUTENTICACIÓN ---
+
+@app.post("/login")
+async def login(request: LoginRequest):
+    # Validación simple para el acceso técnico del dashboard
+    if request.email == "admin@tesis.com" and request.password == "admin123":
+        return {"token": "auth_token_utpl_2026", "user": "Admin_Farith"}
+    raise HTTPException(status_code=401, detail="Acceso denegado")
+
+# --- CRUD DE NODOS (GESTIÓN TÉCNICA) ---
 
 @app.get("/nodos", response_model=List[Nodo])
 async def obtener_nodos():
+    # Retorna la lista de todos los sensores registrados
     return nodos_db
+
+@app.post("/nodos")
+async def registrar_nodo(nuevo_nodo: Nodo):
+    # Para añadir nuevos puntos de monitoreo a la red
+    nodos_db.append(nuevo_nodo.dict())
+    return {"mensaje": "Nodo registrado exitosamente"}
 
 @app.put("/nodos/{nodo_id}")
 async def editar_nodo(nodo_id: str, datos: Nodo):
+    # Permite actualizar ubicación o estado desde el dashboard
     for i, nodo in enumerate(nodos_db):
         if nodo["id"] == nodo_id:
             nodos_db[i] = datos.dict()
-            return {"mensaje": f"Nodo {nodo_id} actualizado"}
+            return {"mensaje": "Cambios guardados"}
     raise HTTPException(status_code=404, detail="Nodo no encontrado")
+
+@app.delete("/nodos/{nodo_id}")
+async def eliminar_nodo(nodo_id: str):
+    # Elimina un nodo de la gestión si se retira del campo
+    global nodos_db
+    nodos_db = [n for n in nodos_db if n["id"] != nodo_id]
+    return {"mensaje": "Nodo removido de la red"}
 
 @app.post("/nodos/{nodo_id}/restart")
 async def reiniciar_nodo(nodo_id: str):
-    # Enviamos comando vía MQTT al hardware
-    comando = {"action": "reboot", "origin": "dashboard_web"}
+    # Función de control remoto: Envía orden de reboot al ESP32 vía MQTT
+    comando = {"action": "reboot", "origin": "web_admin"}
     mqtt_client.publish(f"{TOPIC_COMANDOS}{nodo_id}", json.dumps(comando))
-    return {"mensaje": f"Orden de reinicio enviada al nodo {nodo_id}"}
+    return {"mensaje": f"Señal de reinicio enviada a {nodo_id}"}
 
-# --- RUTA DE HISTORIAL PARA GRÁFICAS ---
+# --- ENDPOINT DE CONSULTA HISTÓRICA ---
 
 @app.get("/api/history")
 async def get_history(range_h: int = 24):
-    # Consulta dinámica según las horas que pida el usuario
+    # Extrae datos de InfluxDB y los formatea para las gráficas de React
     query = f'''
         from(bucket: "{INFLUX_BUCKET}")
         |> range(start: -{range_h}h)
@@ -112,7 +151,6 @@ async def get_history(range_h: int = 24):
         |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
         |> sort(columns: ["_time"], desc: false)
     '''
-    
     result = query_api.query(org=INFLUX_ORG, query=query)
     output = []
     for table in result:
@@ -128,4 +166,4 @@ async def get_history(range_h: int = 24):
 
 @app.get("/")
 def inicio():
-    return {"mensaje": "SANA-UTPL: Control Center Online"}
+    return {"status": "HealthIoT Backend Online"}
