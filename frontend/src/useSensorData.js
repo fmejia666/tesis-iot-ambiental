@@ -3,31 +3,42 @@ import { useState, useEffect } from 'react';
 const API_BASE_URL = "https://tesis-iot-ambiental.onrender.com";
 
 export function useSensorData() {
-  const [data, setData] = useState(null);
+  
+  const [data, setData] = useState({
+    current: {
+      metrics: {
+        pm25_ugm3: 0,
+        pm10_ugm3: 0,
+        co2_ppm: 0,
+        temperature_c: 0,
+        humidity_pct: 0
+      }
+    },
+    history: []
+  });
 
   const fetchRealTimeData = async () => {
     try {
-      // Consultamos las últimas 2 horas de datos para el Dashboard
+      // Consultamos las últimas 2 horas
       const response = await fetch(`${API_BASE_URL}/api/history?range_h=2`);
       const history = await response.json();
 
+      // Solo actualizamos si realmente llegaron datos del sensor
       if (history && history.length > 0) {
-        // El último elemento del array es el dato más reciente
         const lastReading = history[history.length - 1];
 
         setData({
           current: {
             metrics: {
               pm25_ugm3: lastReading.pm25 || 0,
-              pm10_ugm3: lastReading.pm10 || 0, // Si el sensor no envía PM10, marcará 0
+              pm10_ugm3: lastReading.pm10 || 0,
               co2_ppm: lastReading.co2 || 0,
               temperature_c: lastReading.temp || 0,
               humidity_pct: lastReading.hum || 0 
             }
           },
-          // Pasamos todo el historial para la gráfica (limitamos a los últimos 20 puntos)
           history: history.slice(-20).map(item => ({
-            time: item.time.split(' ')[1], // Solo mostramos la hora HH:MM:SS
+            time: item.time.split(' ')[1],
             pm25: item.pm25,
             pm10: item.pm10 || 0,
             co2: item.co2,
@@ -36,7 +47,7 @@ export function useSensorData() {
         });
       }
     } catch (error) {
-      console.error("Error conectando con el Backend de la UTPL:", error);
+      console.error("Error conectando con el Backend:", error);
     }
   };
 
@@ -44,7 +55,7 @@ export function useSensorData() {
     // Primera carga inmediata
     fetchRealTimeData();
 
-    // Actualización cada 20 segundos 
+    // Actualización cada 20 segundos
     const intervalo = setInterval(fetchRealTimeData, 20000);
 
     return () => clearInterval(intervalo);
