@@ -7,8 +7,9 @@ import ssl
 import json
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
+from pymongo import MongoClient
+from passlib.context import CryptContext
 
-# --- CONFIGURACIÓN INFLUXDB ---
 INFLUX_URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
 INFLUX_TOKEN = "5j94SEjqRfX1jOwFcFL2WApRMm_qRhTNCK8DgKnJx5UyoEQM8FJuVG_49W4ZzFmU5XytuXvdL3qii454OkSQeg=="
 INFLUX_ORG = "nodos"
@@ -18,7 +19,13 @@ influx_client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_OR
 write_api = influx_client.write_api(write_options=SYNCHRONOUS)
 query_api = influx_client.query_api()
 
-# --- CONFIGURACIÓN AWS IOT CORE ---
+MONGO_URI = "mongodb+srv://mejiafarith12:jyjHAF9YG0srzQaq@utpl.hpoaxun.mongodb.net/?appName=Utpl"
+mongo_client = MongoClient(MONGO_URI)
+db_mongo = mongo_client["HealthIoT"]
+coleccion_usuarios = db_mongo["usuarios"]
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 AWS_ENDPOINT = "a3efp99tqsedcx-ats.iot.us-east-2.amazonaws.com"
 TOPIC_TELEMETRIA = "utpl/telemetria"
 TOPIC_COMANDOS = "utpl/comandos/"
@@ -33,26 +40,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- MODELOS DE DATOS PARA VALIDACIÓN ---
 class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class NuevoUsuario(BaseModel):
     email: str
     password: str
 
 class Nodo(BaseModel):
     id: str
     ubicacion: str
-    estado: str  # Activo, Inactivo, Mantenimiento
-    bateria: Optional[int] = 100 # Nuevo campo para el dashboard
-    rssi: Optional[int] = -50    # Intensidad de señal WiFi
+    estado: str  
+    bateria: Optional[int] = 100 
+    rssi: Optional[int] = -50    
 
-# --- BASE DE DATOS VOLÁTIL DE NODOS ---
-# Aquí guardamos los nodos registrados. Para la tesis, esto simula una DB persistente.
+class DatosSensor(BaseModel):
+    device_id: str
+    pm25: float
+    co2: float
+    temp: float
+
 nodos_db = [
     {"id": "NODE-001", "ubicacion": "Av. del Maestro", "estado": "Activo", "bateria": 95, "rssi": -65},
     {"id": "CENTRO-01", "ubicacion": "Plaza Central", "estado": "Activo", "bateria": 80, "rssi": -70}
 ]
 
-# --- LÓGICA DE COMUNICACIÓN MQTT ---
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         print("✅ CONEXIÓN EXITOSA AL BROKER DE AWS")
@@ -60,10 +73,8 @@ def on_connect(client, userdata, flags, rc):
 
 def on_message(client, userdata, msg):
     try:
-        # Decodificamos el JSON que llega del ESP32
         payload = json.loads(msg.payload.decode('utf-8'))
         
-        # Mapeo de datos hacia InfluxDB para la persistencia temporal
         point = Point("calidad_aire") \
             .tag("device", payload.get("sensor_id", "Nodo_Desconocido")) \
             .field("pm25", float(payload.get("pm25", 0))) \
@@ -78,7 +89,6 @@ mqtt_client = mqtt.Client(client_id="Backend_HealthIoT_Service")
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
 
-# Configuración de seguridad con certificados X.509
 try:
     mqtt_client.tls_set(
         ca_certs="certs/root-CA.pem", 
@@ -94,31 +104,58 @@ def startup_event():
     mqtt_client.connect(AWS_ENDPOINT, 8883, 60)
     mqtt_client.loop_start()
 
-# --- ENDPOINTS DE AUTENTICACIÓN ---
-
 @app.post("/login")
 async def login(request: LoginRequest):
-    # Validación simple para el acceso técnico del dashboard
-    if request.email == "admin@tesis.com" and request.password == "admin123":
-        return {"token": "auth_token_utpl_2026", "user": "Admin_Farith"}
-    raise HTTPException(status_code=401, detail="Acceso denegado")
+    usuario_db = coleccion_usuarios.find_one({"email": request.email})
+    if not usuario_db:
+        raise HTTPException(status_code=404, detail="Usuario no registrado en el sistema")
+    
+    contrasena_valida = pwd_context.verify(request.password, usuario_db["password"])
+    if not contrasena_valida:
+        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+    
+    return {"token": "auth_token_utpl_2026", "user": request.email}
 
-# --- CRUD DE NODOS (GESTIÓN TÉCNICA) ---
+@app.post("/api/crear_admin_secreto")
+async def crear_admin(usuario: NuevoUsuario):
+    if coleccion_usuarios.find_one({"email": usuario.email}):
+        raise HTTPException(status_code=400, detail="El usuario ya existe")
+        
+    password_hash = pwd_context.hash(usuario.password)
+    
+    nuevo_doc = {
+        "email": usuario.email,
+        "password": password_hash,
+        "rol": "administrador"
+    }
+    coleccion_usuarios.insert_one(nuevo_doc)
+    return {"mensaje": f"Usuario {usuario.email} creado con éxito en MongoDB"}
+
+@app.post("/api/telemetria")
+async def recibir_telemetria(datos: DatosSensor):
+    try:
+        punto = Point("calidad_aire") \
+            .tag("device", datos.device_id) \
+            .field("pm25", float(datos.pm25)) \
+            .field("co2", float(datos.co2)) \
+            .field("temp", float(datos.temp))
+        
+        write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=punto)
+        return {"estado": "éxito", "mensaje": "Telemetría ambiental registrada en InfluxDB"}
+    except Exception as e:
+        return {"estado": "error", "mensaje": str(e)}
 
 @app.get("/nodos", response_model=List[Nodo])
 async def obtener_nodos():
-    # Retorna la lista de todos los sensores registrados
     return nodos_db
 
 @app.post("/nodos")
 async def registrar_nodo(nuevo_nodo: Nodo):
-    # Para añadir nuevos puntos de monitoreo a la red
     nodos_db.append(nuevo_nodo.dict())
     return {"mensaje": "Nodo registrado exitosamente"}
 
 @app.put("/nodos/{nodo_id}")
 async def editar_nodo(nodo_id: str, datos: Nodo):
-    # Permite actualizar ubicación o estado desde el dashboard
     for i, nodo in enumerate(nodos_db):
         if nodo["id"] == nodo_id:
             nodos_db[i] = datos.dict()
@@ -127,23 +164,18 @@ async def editar_nodo(nodo_id: str, datos: Nodo):
 
 @app.delete("/nodos/{nodo_id}")
 async def eliminar_nodo(nodo_id: str):
-    # Elimina un nodo de la gestión si se retira del campo
     global nodos_db
     nodos_db = [n for n in nodos_db if n["id"] != nodo_id]
     return {"mensaje": "Nodo removido de la red"}
 
 @app.post("/nodos/{nodo_id}/restart")
 async def reiniciar_nodo(nodo_id: str):
-    # Función de control remoto: Envía orden de reboot al ESP32 vía MQTT
     comando = {"action": "reboot", "origin": "web_admin"}
     mqtt_client.publish(f"{TOPIC_COMANDOS}{nodo_id}", json.dumps(comando))
     return {"mensaje": f"Señal de reinicio enviada a {nodo_id}"}
 
-# --- ENDPOINT DE CONSULTA HISTÓRICA ---
-
 @app.get("/api/history")
 async def get_history(range_h: int = 24):
-    # Extrae datos de InfluxDB y los formatea para las gráficas de React
     query = f'''
         from(bucket: "{INFLUX_BUCKET}")
         |> range(start: -{range_h}h)
