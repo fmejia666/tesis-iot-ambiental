@@ -1,15 +1,20 @@
 import json
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
-from fastapi.middleware.cors import CORSMiddleware
+import ssl
 import paho.mqtt.client as mqtt
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Optional
 from influxdb_client import InfluxDBClient, Point, WritePrecision
 from influxdb_client.client.write_api import SYNCHRONOUS
+from pymongo import MongoClient
+from passlib.context import CryptContext
 from datetime import datetime, timedelta
 
-app = FastAPI(title="E-Health Monitor Backend")
+app = FastAPI(title="Backend HealthIoT - UTPL")
 
-# --- CORS para permitir la conexión de React ---
+# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,20 +23,52 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- CONFIGURACIÓN INFLUXDB (AWS Cloud) ---
+# --- CREDENCIALES INFLUXDB ---
 INFLUX_URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
 INFLUX_TOKEN = "5j94SEjqRfX1jOwFcFL2WApRMm_qRhTNCK8DgKnJx5UyoEQM8FJuVG_49W4ZzFmU5XytuXvdL3qii454OkSQeg=="
-INFLUX_ORG = "UTPL"
-INFLUX_BUCKET = "aire_utpl" 
+INFLUX_ORG = "nodos"
+INFLUX_BUCKET = "Monitoreo_UTPL"
 
 influx_client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG)
 write_api = influx_client.write_api(write_options=SYNCHRONOUS)
 query_api = influx_client.query_api()
 
-# --- CONFIGURACIÓN MQTT ---
-MQTT_BROKER = "broker.emqx.io"
-MQTT_PORT = 1883
-MQTT_TOPIC = "sensores/utpl/aire"
+# --- CREDENCIALES MONGODB ---
+MONGO_URI = "mongodb+srv://mejiafarith12:jyjHAF9YG0srzQaq@utpl.hpoaxun.mongodb.net/?appName=Utpl"
+mongo_client = MongoClient(MONGO_URI)
+db_mongo = mongo_client["HealthIoT"]
+coleccion_usuarios = db_mongo["usuarios"]
+coleccion_nodos = db_mongo["nodos"]
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# --- CREDENCIALES AWS IOT CORE ---
+AWS_ENDPOINT = "a3efp99tqsedcx-ats.iot.us-east-2.amazonaws.com"
+TOPIC_TELEMETRIA = "utpl/telemetria"
+TOPIC_COMANDOS = "utpl/comandos/"
+
+# --- MODELOS PYDANTIC ---
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class NuevoUsuario(BaseModel):
+    email: str
+    password: str
+
+class Nodo(BaseModel):
+    id: str
+    ubicacion: str
+    estado: str  
+    rssi: Optional[int] = -50    
+
+class DatosSensor(BaseModel):
+    device_id: str
+    pm25: float
+    pm10: float
+    co2: float
+    temp: float
+    hum: float
 
 # --- WEBSOCKET MANAGER ---
 class ConnectionManager:
@@ -55,11 +92,6 @@ class ConnectionManager:
 manager = ConnectionManager()
 main_loop = None
 
-@app.on_event("startup")
-async def startup_event():
-    global main_loop
-    main_loop = asyncio.get_running_loop()
-
 # --- LÓGICA DE DECISIÓN CLÍNICA ---
 def evaluar_salud(pm25, co2):
     if pm25 > 50 or co2 > 1500:
@@ -69,66 +101,72 @@ def evaluar_salud(pm25, co2):
     else:
         return {"level": "normal", "msg": "Condiciones Óptimas"}
 
-# --- EVENTOS DE MQTT ---
+# --- FUNCIONES MQTT (AWS) ---
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("✅ Backend conectado al Broker MQTT")
-        client.subscribe(MQTT_TOPIC)
+        print("✅ CONEXIÓN EXITOSA AL BROKER DE AWS IOT")
+        client.subscribe(TOPIC_TELEMETRIA)
     else:
         print(f"❌ Error conectando a MQTT. Código: {rc}")
 
 def on_message(client, userdata, msg):
     try:
-        payload = json.loads(msg.payload.decode())
+        payload = json.loads(msg.payload.decode('utf-8'))
         
-        # 1. Guardar el registro en InfluxDB Cloud
+        # 1. Guardar en InfluxDB
         point = Point("calidad_aire") \
-            .tag("ubicacion", "av_maestro") \
-            .field("pm25_ugm3", float(payload.get("pm25", 0))) \
-            .field("pm10_ugm3", float(payload.get("pm10", 0))) \
-            .field("co2_ppm", float(payload.get("co2", 0))) \
-            .field("temperature_c", float(payload.get("temp", 0))) \
-            .field("humidity_pct", float(payload.get("hum", 0))) \
+            .tag("device", payload.get("device_id", "NODE-001")) \
+            .field("pm25", float(payload.get("pm25", 0))) \
+            .field("pm10", float(payload.get("pm10", 0))) \
+            .field("co2", float(payload.get("co2", 0))) \
+            .field("temp", float(payload.get("temp", 0))) \
+            .field("hum", float(payload.get("hum", 0))) \
             .time(datetime.utcnow(), WritePrecision.NS)
         
         write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
         
-        # 2. Armar el paquete de datos en tiempo real para React
+        # 2. Armar paquete WebSocket con evaluación de salud
         estado = evaluar_salud(payload.get("pm25", 0), payload.get("co2", 0))
         mensaje_ws = {
             "metrics": {
-                "pm25_ugm3": payload.get("pm25", 0),
-                "pm10_ugm3": payload.get("pm10", 0),
-                "co2_ppm": payload.get("co2", 0),
-                "temperature_c": payload.get("temp", 0),
-                "humidity_pct": payload.get("hum", 0)
+                "pm25": payload.get("pm25", 0),
+                "pm10": payload.get("pm10", 0),
+                "co2": payload.get("co2", 0),
+                "temp": payload.get("temp", 0),
+                "hum": payload.get("hum", 0)
             },
             "health_status": estado
         }
         
-        # 3. Transmitir por WebSocket (usando el puente seguro)
+        # 3. Transmitir por WebSockets
         global main_loop
         if main_loop and main_loop.is_running():
             asyncio.run_coroutine_threadsafe(manager.broadcast(json.dumps(mensaje_ws)), main_loop)
             
-        print(f"📥 Dato Procesado a la Nube: PM2.5={payload.get('pm25')} | PM10={payload.get('pm10')} | CO2={payload.get('co2')}")
-        
+        print(f"✅ Dato Procesado a la Nube (AWS -> WS): {payload}")
     except Exception as e:
-        print(f"❌ Error procesando mensaje del sensor: {e}")
-        
-    except Exception as e:
-        print(f"❌ Error procesando mensaje del sensor: {e}")
+        print(f"❌ Error en la ingesta de datos: {e}")
 
-# Inicializar cliente MQTT
-mqtt_client = mqtt.Client()
+mqtt_client = mqtt.Client(client_id="Backend_HealthIoT_Service")
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
 
 try:
-    mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    mqtt_client.tls_set(
+        ca_certs="certs/root-CA.pem", 
+        certfile="certs/certificate.pem.crt", 
+        keyfile="certs/private.pem.key", 
+        tls_version=ssl.PROTOCOL_TLSv1_2
+    )
+except:
+    print("⚠️ Revisa la carpeta de certificados pem")
+
+@app.on_event("startup")
+async def startup_event():
+    global main_loop
+    main_loop = asyncio.get_running_loop()
+    mqtt_client.connect(AWS_ENDPOINT, 8883, 60)
     mqtt_client.loop_start()
-except Exception as e:
-    print(f"⚠️ Advertencia: No se pudo conectar al broker MQTT: {e}")
 
 # --- RUTAS DE LA API (ENDPOINTS) ---
 
@@ -141,27 +179,63 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
+@app.post("/login")
+async def login(request: LoginRequest):
+    usuario_db = coleccion_usuarios.find_one({"email": request.email})
+    if not usuario_db:
+        raise HTTPException(status_code=404, detail="Usuario no registrado en el sistema")
+    
+    contrasena_valida = pwd_context.verify(request.password, usuario_db["password"])
+    if not contrasena_valida:
+        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+    
+    return {"token": "auth_token_utpl_2026", "user": request.email}
+
+@app.get("/nodos", response_model=List[Nodo])
+async def obtener_nodos():
+    nodos_cursor = coleccion_nodos.find({}, {"_id": 0})
+    return list(nodos_cursor)
+
+@app.post("/nodos")
+async def registrar_nodo(nuevo_nodo: Nodo):
+    if coleccion_nodos.find_one({"id": nuevo_nodo.id}):
+        raise HTTPException(status_code=400, detail="Este ID de nodo ya existe")
+    coleccion_nodos.insert_one(nuevo_nodo.dict())
+    return {"mensaje": "Nodo registrado exitosamente en MongoDB"}
+
+@app.put("/nodos/{nodo_id}")
+async def editar_nodo(nodo_id: str, datos: Nodo):
+    resultado = coleccion_nodos.update_one({"id": nodo_id}, {"$set": datos.dict()})
+    if resultado.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Nodo no encontrado")
+    return {"mensaje": "Cambios guardados exitosamente"}
+
+@app.delete("/nodos/{nodo_id}")
+async def eliminar_nodo(nodo_id: str):
+    resultado = coleccion_nodos.delete_one({"id": nodo_id})
+    if resultado.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Nodo no encontrado")
+    return {"mensaje": f"El dispositivo {nodo_id} ha sido borrado"}
+
+@app.post("/nodos/{nodo_id}/restart")
+async def reiniciar_nodo(nodo_id: str):
+    comando = {"action": "reboot", "origin": "web_admin"}
+    mqtt_client.publish(f"{TOPIC_COMANDOS}{nodo_id}", json.dumps(comando))
+    return {"mensaje": f"Señal de reinicio enviada a {nodo_id}"}
+
 @app.get("/api/history")
 async def get_history(start_date: str = Query(None), end_date: str = Query(None)):
-    """
-    Ruta para descargar la data histórica filtrada por fechas de forma segura.
-    Compensa la zona horaria de Ecuador (UTC-5) matemáticamente.
-    """
     try:
         if start_date and end_date:
-            # 1. Convertir el texto a objetos de fecha de Python
             start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-            # El final es el mismo día seleccionado pero a las 23:59:59
             end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1, seconds=-1)
 
-            # 2. Sumar 5 horas exactas para igualar el reloj de la nube (UTC)
+            # Sumar 5 horas exactas para UTC
             start_utc = start_dt + timedelta(hours=5)
             end_utc = end_dt + timedelta(hours=5)
 
-            # 3. Formatear en el estándar estricto que InfluxDB exige (RFC3339)
             start_str = start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
             end_str = end_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-
             time_filter = f'|> range(start: {start_str}, stop: {end_str})'
         else:
             time_filter = '|> range(start: -24h)'
@@ -170,9 +244,9 @@ async def get_history(start_date: str = Query(None), end_date: str = Query(None)
         from(bucket: "{INFLUX_BUCKET}")
           {time_filter}
           |> filter(fn: (r) => r["_measurement"] == "calidad_aire")
-          |> filter(fn: (r) => r["ubicacion"] == "av_maestro")
           |> aggregateWindow(every: 5m, fn: mean, createEmpty: false) 
           |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+          |> sort(columns: ["_time"], desc: false)
         '''
         
         result = query_api.query(org=INFLUX_ORG, query=query)
@@ -180,19 +254,21 @@ async def get_history(start_date: str = Query(None), end_date: str = Query(None)
         history_list = []
         for table in result:
             for record in table.records:
-                # Al recibir la fecha de la nube, le volvemos a restar las 5 horas 
-                # para que en tu tabla de React salga la hora exacta de Ecuador.
                 time_obj = record.get_time() - timedelta(hours=5)
-                
                 history_list.append({
-                    "time": time_obj.strftime('%Y-%m-%d %H:%M'),
-                    "pm25": round(record.values.get("pm25_ugm3", 0), 1),
-                    "pm10": round(record.values.get("pm10_ugm3", 0), 1),
-                    "co2": round(record.values.get("co2_ppm", 0), 1),
-                    "temp": round(record.values.get("temperature_c", 0), 1)
+                    "time": time_obj.strftime('%Y-%m-%d %H:%M:%S'),
+                    "pm25": round(record.values.get("pm25", 0), 1),
+                    "pm10": round(record.values.get("pm10", 0), 1),
+                    "co2": round(record.values.get("co2", 0), 1),
+                    "temp": round(record.values.get("temp", 0), 1),
+                    "hum": round(record.values.get("hum", 0), 1)
                 })
                 
-        return history_list[::-1]
+        return history_list
     except Exception as e:
         print(f"❌ Error en consulta histórica: {e}")
         return []
+
+@app.get("/")
+def inicio():
+    return {"status": "HealthIoT Backend Online"}
