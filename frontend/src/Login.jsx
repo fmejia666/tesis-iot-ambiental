@@ -15,24 +15,21 @@ const Login = () => {
     setLoading(true);
 
     try {
-      // IMPORTANTE: Esta URL debe ser la de tu Render
       const response = await fetch("https://tesis-iot-ambiental.onrender.com/login", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: email,       // El backend espera "email"
-          password: password  // El backend espera "password"
+          email: email,       
+          password: password  
         }),
       });
 
       const data = await response.json();
 
       if (response.ok) {
-        // Guardamos el token que configuramos en FastAPI
         localStorage.setItem('token', data.token);
-        // Redirigimos al Dashboard
         navigate('/');
       } else {
         setError(data.detail || 'Acceso denegado. Revisa tus credenciales.');

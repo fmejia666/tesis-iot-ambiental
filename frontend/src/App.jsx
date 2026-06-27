@@ -16,9 +16,7 @@ import Login from './Login';
 
 const API_BASE_URL = "https://tesis-iot-ambiental.onrender.com";
 
-// =========================================================
-// COMPONENTES DE APOYO (UI)
-// =========================================================
+
 function KPICard({ title, value, unit, icon, level, message }) {
   const styles = {
     danger: "border-red-500 bg-red-50 text-red-700",
@@ -47,9 +45,7 @@ function MapResizer() {
   return null;
 }
 
-// =========================================================
-// VISTAS DEL DASHBOARD
-// =========================================================
+
 
 function DashboardView({ data, history, thresholds }) {
   const { metrics } = data;
@@ -115,7 +111,7 @@ function DashboardView({ data, history, thresholds }) {
   );
 }
 
-// --- VISTA DE HISTORIAL (CORREGIDA CON SELECTOR Y TABLA) ---
+
 function HistoryView() {
   const [historicalData, setHistoricalData] = useState([]);
   const [range, setRange] = useState(24);
@@ -131,7 +127,7 @@ function HistoryView() {
 
   useEffect(() => { fetchHistory(); }, [range]);
 
-  // Función para descargar el reporte CSV
+
   const downloadCSV = () => {
     if (historicalData.length === 0) return alert("No hay datos disponibles");
     const headers = "Fecha_Hora,PM25,CO2,Temperatura,Dispositivo\n";
@@ -223,7 +219,7 @@ function HistoryView() {
   );
 }
 
-// --- VISTA DE GESTIÓN ---
+
 function SettingsView({ thresholds, updateThresholds }) {
   const [nodes, setNodes] = useState([]);
   const [editingNode, setEditingNode] = useState(null);
@@ -343,9 +339,6 @@ function SettingsView({ thresholds, updateThresholds }) {
   );
 }
 
-// =========================================================
-// ESTRUCTURA PRINCIPAL
-// =========================================================
 function DashboardUnificado({ thresholds, updateThresholds }) {
   const sensorInfo = useSensorData();
   const [activeTab, setActiveTab] = useState('dashboard');

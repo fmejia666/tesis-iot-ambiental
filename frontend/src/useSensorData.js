@@ -19,11 +19,11 @@ export function useSensorData() {
 
   const fetchRealTimeData = async () => {
     try {
-      // Consultamos las últimas 2 horas
+    
       const response = await fetch(`${API_BASE_URL}/api/history?range_h=2`);
       const history = await response.json();
 
-      // Solo actualizamos si realmente llegaron datos del sensor
+
       if (history && history.length > 0) {
         const lastReading = history[history.length - 1];
 
@@ -52,10 +52,7 @@ export function useSensorData() {
   };
 
   useEffect(() => {
-    // Primera carga inmediata
     fetchRealTimeData();
-
-    // Actualización cada 20 segundos
     const intervalo = setInterval(fetchRealTimeData, 20000);
 
     return () => clearInterval(intervalo);
