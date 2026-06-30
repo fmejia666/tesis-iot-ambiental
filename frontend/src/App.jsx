@@ -16,7 +16,6 @@ import Login from './Login';
 
 const API_BASE_URL = "https://tesis-iot-ambiental.onrender.com";
 
-
 function KPICard({ title, value, unit, icon, level, message }) {
   const styles = {
     danger: "border-red-500 bg-red-50 text-red-700",
@@ -45,14 +44,19 @@ function MapResizer() {
   return null;
 }
 
-
-
 function DashboardView({ data, history, thresholds }) {
   const { metrics } = data;
   const sensorLocation = [-0.1231680, -78.4925269]; 
 
-  const pm25Risk = metrics.pm25_ugm3 > thresholds.pm25 ? 'danger' : (metrics.pm25_ugm3 > (thresholds.pm25 * 0.5) ? 'warning' : 'normal');
-  const co2Risk = metrics.co2_ppm > thresholds.co2 ? 'danger' : 'normal';
+
+  const pm25 = metrics.pm25 ?? metrics.pm25_ugm3 ?? 0;
+  const pm10 = metrics.pm10 ?? metrics.pm10_ugm3 ?? 0;
+  const co2 = metrics.co2 ?? metrics.co2_ppm ?? 0;
+  const temp = metrics.temp ?? metrics.temperature_c ?? 0;
+  const hum = metrics.hum ?? metrics.humidity_pct ?? 0;
+
+  const pm25Risk = pm25 > thresholds.pm25 ? 'danger' : (pm25 > (thresholds.pm25 * 0.5) ? 'warning' : 'normal');
+  const co2Risk = co2 > thresholds.co2 ? 'danger' : 'normal';
 
   const getMapRiskColor = (level) => {
     if (level === 'danger') return '#ef4444';
@@ -62,11 +66,12 @@ function DashboardView({ data, history, thresholds }) {
 
   return (
     <div className="space-y-8 animate-fade-in">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KPICard title="PM 2.5" value={metrics.pm25_ugm3} unit="µg/m³" icon={<Wind className="text-blue-500" />} level={pm25Risk} message={`Umbral: ${thresholds.pm25}`} />
-        <KPICard title="Dióxido de Carbono" value={metrics.co2_ppm} unit="ppm" icon={<Activity className="text-orange-500" />} level={co2Risk} message={`Umbral: ${thresholds.co2}`} />
-        <KPICard title="Temperatura" value={`${metrics.temperature_c}°`} unit="C" icon={<Thermometer className="text-purple-500" />} level="normal" message="Ambiente controlado" />
-        <KPICard title="Humedad" value={`${metrics.humidity_pct}`} unit="%" icon={<Activity className="text-cyan-500" />} level="normal" message="Nivel óptimo" />
+      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-6">
+        <KPICard title="PM 2.5" value={Number(pm25).toFixed(1)} unit="µg/m³" icon={<Wind className="text-blue-500" />} level={pm25Risk} message={`Umbral: ${thresholds.pm25}`} />
+        <KPICard title="PM 10" value={Number(pm10).toFixed(1)} unit="µg/m³" icon={<Wind className="text-gray-500" />} level="normal" message="Partículas gruesas" />
+        <KPICard title="Dióxido de Carbono" value={Number(co2).toFixed(1)} unit="ppm" icon={<Activity className="text-orange-500" />} level={co2Risk} message={`Umbral: ${thresholds.co2}`} />
+        <KPICard title="Temperatura" value={Number(temp).toFixed(1)} unit="°C" icon={<Thermometer className="text-purple-500" />} level="normal" message="Ambiente controlado" />
+        <KPICard title="Humedad" value={Number(hum).toFixed(1)} unit="%" icon={<Activity className="text-cyan-500" />} level="normal" message="Nivel óptimo" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -111,11 +116,10 @@ function DashboardView({ data, history, thresholds }) {
   );
 }
 
-
 function HistoryView() {
   const [historicalData, setHistoricalData] = useState([]);
   const [range, setRange] = useState(24);
-  const [selectedMetric, setSelectedMetric] = useState('pm25'); // Nuevo: Selector de métrica
+  const [selectedMetric, setSelectedMetric] = useState('pm25');
 
   const fetchHistory = async () => {
     try {
@@ -127,11 +131,10 @@ function HistoryView() {
 
   useEffect(() => { fetchHistory(); }, [range]);
 
-
   const downloadCSV = () => {
     if (historicalData.length === 0) return alert("No hay datos disponibles");
-    const headers = "Fecha_Hora,PM25,CO2,Temperatura,Dispositivo\n";
-    const csv = historicalData.map(r => `${r.time},${r.pm25},${r.co2},${r.temp},${r.device}`).join("\n");
+    const headers = "Fecha_Hora,PM25,PM10,CO2,Temperatura,Humedad,Dispositivo\n";
+    const csv = historicalData.map(r => `${r.time},${r.pm25},${r.pm10},${r.co2},${r.temp},${r.hum},${r.device}`).join("\n");
     const blob = new Blob([headers + csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -142,7 +145,6 @@ function HistoryView() {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Selector de periodo y métrica */}
       <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex flex-wrap justify-between items-center gap-4">
         <div className="flex gap-4">
           <div className="flex items-center gap-2">
@@ -157,8 +159,10 @@ function HistoryView() {
             <Sliders className="text-purple-600" size={18} />
             <select value={selectedMetric} onChange={(e) => setSelectedMetric(e.target.value)} className="font-bold text-gray-700 outline-none bg-gray-50 p-2 rounded-lg">
               <option value="pm25">Visualizar PM 2.5</option>
+              <option value="pm10">Visualizar PM 10</option>
               <option value="co2">Visualizar CO2</option>
               <option value="temp">Visualizar Temp</option>
+              <option value="hum">Visualizar Humedad</option>
             </select>
           </div>
         </div>
@@ -167,7 +171,6 @@ function HistoryView() {
         </button>
       </div>
 
-      {/* Gráfica Histórica Dinámica */}
       <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
         <h3 className="text-gray-500 text-sm font-black uppercase mb-4 tracking-widest">
           Tendencia Histórica: {selectedMetric.toUpperCase()}
@@ -190,7 +193,6 @@ function HistoryView() {
         </div>
       </div>
 
-      {/* Tabla de registros históricos */}
       <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
         <table className="w-full text-left">
           <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest">
@@ -209,7 +211,7 @@ function HistoryView() {
                 <td className="p-6 font-bold text-blue-600">{r.pm25} µg/m³</td>
                 <td className="p-6 font-bold text-orange-600">{r.co2} ppm</td>
                 <td className="p-6 font-bold text-purple-600">{r.temp}°C</td>
-                <td className="p-6 text-gray-400">{r.device}</td>
+                <td className="p-6 text-gray-400">{r.device || "NODE-001"}</td>
               </tr>
             ))}
           </tbody>
@@ -219,10 +221,14 @@ function HistoryView() {
   );
 }
 
-
 function SettingsView({ thresholds, updateThresholds }) {
   const [nodes, setNodes] = useState([]);
   const [editingNode, setEditingNode] = useState(null);
+  
+
+  const [localThresh, setLocalThresh] = useState(thresholds);
+
+  useEffect(() => { setLocalThresh(thresholds); }, [thresholds]);
 
   const fetchNodes = () => {
     fetch(`${API_BASE_URL}/nodos`)
@@ -231,6 +237,31 @@ function SettingsView({ thresholds, updateThresholds }) {
   };
 
   useEffect(() => { fetchNodes(); }, []);
+
+
+  const handleAddNode = async () => {
+    const id = window.prompt("Ingrese el ID del nuevo nodo (Ej. NODE-002):");
+    if (!id) return;
+    const ubicacion = window.prompt("Ingrese la ubicación del nodo:");
+    if (!ubicacion) return;
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/nodos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ubicacion, estado: 'Activo', rssi: -50 })
+      });
+      if (res.ok) {
+        alert("Nodo registrado exitosamente en la base de datos");
+        fetchNodes();
+      } else {
+        const error = await res.json();
+        alert(`Error: ${error.detail}`);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleDelete = async (id) => {
     if (!window.confirm("¿Confirmas la eliminación de este nodo de la red?")) return;
@@ -258,7 +289,7 @@ function SettingsView({ thresholds, updateThresholds }) {
       <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
         <div className="p-6 border-b border-gray-50 flex justify-between items-center">
           <h3 className="text-xl font-black text-gray-800">Infraestructura de Nodos</h3>
-          <button className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2">
+          <button onClick={handleAddNode} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-colors">
             <Plus size={18}/> Nuevo Punto de Monitoreo
           </button>
         </div>
@@ -269,7 +300,6 @@ function SettingsView({ thresholds, updateThresholds }) {
               <th className="p-6">Nodo ID</th>
               <th className="p-6">Ubicación</th>
               <th className="p-6">Estado</th>
-              <th className="p-6">Energía</th>
               <th className="p-6">Señal</th>
               <th className="p-6 text-right">Acciones</th>
             </tr>
@@ -287,12 +317,6 @@ function SettingsView({ thresholds, updateThresholds }) {
                   <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${node.estado === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
                     {node.estado}
                   </span>
-                </td>
-                <td className="p-6">
-                  <div className="flex items-center gap-2 text-gray-500 font-bold">
-                    <Battery size={16} className={node.bateria < 20 ? 'text-red-500' : 'text-green-500'} />
-                    {node.bateria}%
-                  </div>
                 </td>
                 <td className="p-6">
                   <div className="flex items-center gap-2 text-gray-500 font-bold">
@@ -324,14 +348,16 @@ function SettingsView({ thresholds, updateThresholds }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase">Umbral Crítico PM 2.5</label>
-            <input type="number" className="w-full border-2 border-gray-100 p-4 rounded-2xl focus:border-blue-500 outline-none font-bold" value={thresholds.pm25} onChange={e => updateThresholds({...thresholds, pm25: e.target.value})} />
+            <input type="number" className="w-full border-2 border-gray-100 p-4 rounded-2xl focus:border-blue-500 outline-none font-bold" 
+                   value={localThresh.pm25} onChange={e => setLocalThresh({...localThresh, pm25: e.target.value})} />
           </div>
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase">Límite CO2 (ppm)</label>
-            <input type="number" className="w-full border-2 border-gray-100 p-4 rounded-2xl focus:border-blue-500 outline-none font-bold" value={thresholds.co2} onChange={e => updateThresholds({...thresholds, co2: e.target.value})} />
+            <input type="number" className="w-full border-2 border-gray-100 p-4 rounded-2xl focus:border-blue-500 outline-none font-bold" 
+                   value={localThresh.co2} onChange={e => setLocalThresh({...localThresh, co2: e.target.value})} />
           </div>
         </div>
-        <button onClick={() => alert("Configuración guardada en el sistema")} className="mt-10 w-full bg-blue-600 text-white py-5 rounded-2xl font-black shadow-lg hover:shadow-blue-200 transition-all">
+        <button onClick={() => updateThresholds(localThresh)} className="mt-10 w-full bg-blue-600 text-white py-5 rounded-2xl font-black shadow-lg hover:shadow-blue-200 transition-all">
           ACTUALIZAR POLÍTICAS DE ALERTA
         </button>
       </div>
@@ -414,14 +440,36 @@ function DashboardUnificado({ thresholds, updateThresholds }) {
 }
 
 export default function App() {
-  const [thresholds, setThresholds] = useState(() => {
-    const saved = localStorage.getItem('thresholds');
-    return saved ? JSON.parse(saved) : { pm25: 15, co2: 1000 };
-  });
+  const [thresholds, setThresholds] = useState({ pm25: 15, co2: 1000 });
 
-  const updateThresholds = (newT) => {
+  
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/configuracion`)
+      .then(res => res.json())
+      .then(data => {
+        if(data.umbral_pm25) {
+          setThresholds({ pm25: data.umbral_pm25, co2: data.limite_co2 });
+        }
+      })
+      .catch(err => console.error("Error al cargar configuración", err));
+  }, []);
+
+
+  const updateThresholds = async (newT) => {
     setThresholds(newT);
-    localStorage.setItem('thresholds', JSON.stringify(newT));
+    try {
+      await fetch(`${API_BASE_URL}/api/configuracion`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          umbral_pm25: Number(newT.pm25), 
+          limite_co2: Number(newT.co2) 
+        })
+      });
+      alert("¡Parámetros guardados! Aplicando a todas las sesiones.");
+    } catch(e) {
+      console.error("Error al guardar", e);
+    }
   };
 
   return (

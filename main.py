@@ -23,7 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- CREDENCIALES INFLUXDB ---
+
 INFLUX_URL = "https://us-east-1-1.aws.cloud2.influxdata.com"
 INFLUX_TOKEN = "5j94SEjqRfX1jOwFcFL2WApRMm_qRhTNCK8DgKnJx5UyoEQM8FJuVG_49W4ZzFmU5XytuXvdL3qii454OkSQeg=="
 INFLUX_ORG = "nodos"
@@ -33,21 +33,22 @@ influx_client = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_OR
 write_api = influx_client.write_api(write_options=SYNCHRONOUS)
 query_api = influx_client.query_api()
 
-# --- CREDENCIALES MONGODB ---
+
 MONGO_URI = "mongodb+srv://mejiafarith12:jyjHAF9YG0srzQaq@utpl.hpoaxun.mongodb.net/?appName=Utpl"
 mongo_client = MongoClient(MONGO_URI)
 db_mongo = mongo_client["HealthIoT"]
 coleccion_usuarios = db_mongo["usuarios"]
 coleccion_nodos = db_mongo["nodos"]
+coleccion_config = db_mongo["configuracion"] 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# --- CREDENCIALES AWS IOT CORE ---
+
 AWS_ENDPOINT = "a3efp99tqsedcx-ats.iot.us-east-2.amazonaws.com"
 TOPIC_TELEMETRIA = "utpl/telemetria"
 TOPIC_COMANDOS = "utpl/comandos/"
 
-# --- MODELOS PYDANTIC ---
+
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -70,7 +71,11 @@ class DatosSensor(BaseModel):
     temp: float
     hum: float
 
-# --- WEBSOCKET MANAGER ---
+class ConfiguracionAlerta(BaseModel):
+    umbral_pm25: float
+    limite_co2: float
+
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -92,8 +97,9 @@ class ConnectionManager:
 manager = ConnectionManager()
 main_loop = None
 
-# --- LÓGICA DE DECISIÓN CLÍNICA ---
+
 def evaluar_salud(pm25, co2):
+  
     if pm25 > 50 or co2 > 1500:
         return {"level": "danger", "msg": "Riesgo Respiratorio Crítico"}
     elif pm25 > 25 or co2 > 1000:
@@ -222,6 +228,24 @@ async def reiniciar_nodo(nodo_id: str):
     comando = {"action": "reboot", "origin": "web_admin"}
     mqtt_client.publish(f"{TOPIC_COMANDOS}{nodo_id}", json.dumps(comando))
     return {"mensaje": f"Señal de reinicio enviada a {nodo_id}"}
+
+# [NUEVO] Endpoints para la Configuración Global de Parámetros de Alerta
+@app.get("/api/configuracion")
+async def obtener_configuracion():
+    config = coleccion_config.find_one({"_id": "politicas_globales"})
+    if not config:
+        # Valores por defecto para la primera vez que se cargue
+        return {"umbral_pm25": 20.0, "limite_co2": 900.0}
+    return {"umbral_pm25": config["umbral_pm25"], "limite_co2": config["limite_co2"]}
+
+@app.put("/api/configuracion")
+async def actualizar_configuracion(config: ConfiguracionAlerta):
+    coleccion_config.update_one(
+        {"_id": "politicas_globales"},
+        {"$set": config.dict()},
+        upsert=True
+    )
+    return {"mensaje": "Políticas de alerta actualizadas globalmente"}
 
 @app.get("/api/history")
 async def get_history(start_date: str = Query(None), end_date: str = Query(None)):

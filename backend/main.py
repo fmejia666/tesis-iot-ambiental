@@ -179,16 +179,16 @@ async def get_history(range_h: int = 24):
             })
     return output
 
-# --- ENDPOINTS NODOS (CRUD REAL EN MONGODB) ---
+
 @app.get("/nodos", response_model=List[Nodo])
 async def obtener_nodos():
-    # Buscamos todos los nodos, excluyendo el _id interno de Mongo
+
     nodos_cursor = coleccion_nodos.find({}, {"_id": 0})
     return list(nodos_cursor)
 
 @app.post("/nodos")
 async def registrar_nodo(nuevo_nodo: Nodo):
-    # Verificamos si el nodo ya existe para no duplicarlo
+   
     if coleccion_nodos.find_one({"id": nuevo_nodo.id}):
         raise HTTPException(status_code=400, detail="Este ID de nodo ya existe en la base de datos")
     
