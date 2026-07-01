@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { 
   Wind, Activity, Thermometer, LayoutDashboard, Database, Download, 
   MapPin, Sliders, Save, LogOut, ShieldAlert, Plus, RotateCw, Edit2, X, Check,
-  Battery, Wifi, Trash2 
+  Battery, Wifi, Trash2, Calendar
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, 
@@ -48,7 +48,6 @@ function DashboardView({ data, history, thresholds }) {
   const { metrics } = data;
   const sensorLocation = [-0.1231680, -78.4925269]; 
 
-
   const pm25 = metrics.pm25 ?? metrics.pm25_ugm3 ?? 0;
   const pm10 = metrics.pm10 ?? metrics.pm10_ugm3 ?? 0;
   const co2 = metrics.co2 ?? metrics.co2_ppm ?? 0;
@@ -64,8 +63,18 @@ function DashboardView({ data, history, thresholds }) {
     return '#22c55e';
   };
 
+  // Configuración de la lista de gráficas
+  const metricasGraficos = [
+    { key: 'pm25', name: 'Partículas PM 2.5', color: '#3b82f6' },
+    { key: 'pm10', name: 'Partículas PM 10', color: '#64748b' },
+    { key: 'co2', name: 'Dióxido de Carbono (CO2)', color: '#f97316' },
+    { key: 'temp', name: 'Temperatura', color: '#a855f7' },
+    { key: 'hum', name: 'Humedad Relativa', color: '#06b6d4' }
+  ];
+
   return (
     <div className="space-y-8 animate-fade-in">
+      {/* 1. FILA DE TARJETAS SUPERIORES */}
       <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-6">
         <KPICard title="PM 2.5" value={Number(pm25).toFixed(1)} unit="µg/m³" icon={<Wind className="text-blue-500" />} level={pm25Risk} message={`Umbral: ${thresholds.pm25}`} />
         <KPICard title="PM 10" value={Number(pm10).toFixed(1)} unit="µg/m³" icon={<Wind className="text-gray-500" />} level="normal" message="Partículas gruesas" />
@@ -74,30 +83,38 @@ function DashboardView({ data, history, thresholds }) {
         <KPICard title="Humedad" value={Number(hum).toFixed(1)} unit="%" icon={<Activity className="text-cyan-500" />} level="normal" message="Nivel óptimo" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2 bg-white p-6 rounded-3xl shadow-xl border border-gray-100">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-gray-800 tracking-tight">Telemetría en Tiempo Real</h2>
-            <span className="flex items-center gap-2 bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold animate-pulse">
-              <span className="w-2 h-2 bg-green-500 rounded-full"></span> TRANSMITIENDO
-            </span>
-          </div>
-          <div className="h-80 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={history}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} />
-                <XAxis dataKey="time" tick={{fontSize: 12}} />
-                <YAxis tick={{fontSize: 12}} />
-                <RechartsTooltip contentStyle={{ borderRadius: '15px', border: 'none' }} />
-                <Legend />
-                <Line type="monotone" dataKey="pm25" name="PM 2.5" stroke="#3b82f6" strokeWidth={3} dot={false} />
-                <Line type="monotone" dataKey="co2" name="CO2" stroke="#f97316" strokeWidth={2} dot={false} strokeDasharray="5 5" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+      {/* 2. ZONA DE LISTA DE GRÁFICOS Y MAPA FLOTANTE */}
+      {/* Nota: items-start es crucial aquí para que el sticky del mapa funcione correctamente */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+        
+        {/* COLUMNA IZQUIERDA: LISTA DE GRÁFICOS */}
+        <div className="lg:col-span-2 space-y-6">
+          {metricasGraficos.map((grafico) => (
+            <div key={grafico.key} className="bg-white p-6 rounded-3xl shadow-xl border border-gray-100">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-800 tracking-tight">{grafico.name}</h2>
+                <span className="flex items-center gap-2 bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-bold animate-pulse">
+                  <span className="w-2 h-2 bg-green-500 rounded-full"></span> EN VIVO
+                </span>
+              </div>
+              {/* Altura reducida a h-48 para que la lista no sea excesivamente larga */}
+              <div className="h-48 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={history}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} />
+                    <XAxis dataKey="time" hide />
+                    <YAxis tick={{fontSize: 10}} width={40} />
+                    <RechartsTooltip contentStyle={{ borderRadius: '15px', border: 'none' }} />
+                    <Line type="monotone" dataKey={grafico.key} name={grafico.name} stroke={grafico.color} strokeWidth={3} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          ))}
         </div>
 
-        <div className="bg-white p-6 rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+        {/* COLUMNA DERECHA: MAPA (Fijo en pantalla al hacer scroll) */}
+        <div className="bg-white p-6 rounded-3xl shadow-xl border border-gray-100 overflow-hidden sticky top-8">
           <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
             <MapPin size={20} className="text-red-500" /> Georreferenciación
           </h2>
@@ -106,68 +123,96 @@ function DashboardView({ data, history, thresholds }) {
               <MapResizer />
               <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
               <Circle center={sensorLocation} radius={100} pathOptions={{ color: getMapRiskColor(pm25Risk), fillColor: getMapRiskColor(pm25Risk), fillOpacity: 0.3 }}>
-                <Popup>Estación: Av. del Maestro</Popup>
+                <Popup>Estación Activa: NODE-001 (Av. del Maestro)</Popup>
               </Circle>
             </MapContainer>
           </div>
         </div>
+
       </div>
     </div>
   );
 }
 
-function HistoryView() {
+function HistoryView({ thresholds }) {
   const [historicalData, setHistoricalData] = useState([]);
-  const [range, setRange] = useState(24);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [selectedMetric, setSelectedMetric] = useState('pm25');
 
   const fetchHistory = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/history?range_h=${range}`);
+      let url = `${API_BASE_URL}/api/history`;
+      if (startDate && endDate) {
+        url += `?start_date=${startDate}&end_date=${endDate}`;
+      } else {
+        url += `?range_h=24`;
+      }
+      const response = await fetch(url);
       const data = await response.json();
       setHistoricalData(data);
     } catch (error) { console.error("Error cargando historial"); }
   };
 
-  useEffect(() => { fetchHistory(); }, [range]);
+  useEffect(() => { fetchHistory(); }, [startDate, endDate]);
+
+  const evaluarRiesgoPM25 = (val) => {
+    if (val > thresholds.pm25) return 'CRITICO (Excede OMS)';
+    if (val > thresholds.pm25 * 0.5) return 'PRECAUCION (Moderado)';
+    return 'OPTIMO (Seguro)';
+  };
+
+  const evaluarRiesgoCO2 = (val) => {
+    if (val > thresholds.co2) return 'CRITICO (Ambiente Confinado)';
+    return 'OPTIMO (Ventilado)';
+  };
 
   const downloadCSV = () => {
-    if (historicalData.length === 0) return alert("No hay datos disponibles");
-    const headers = "Fecha_Hora,PM25,PM10,CO2,Temperatura,Humedad,Dispositivo\n";
-    const csv = historicalData.map(r => `${r.time},${r.pm25},${r.pm10},${r.co2},${r.temp},${r.hum},${r.device}`).join("\n");
-    const blob = new Blob([headers + csv], { type: 'text/csv' });
+    if (historicalData.length === 0) return alert("No hay datos disponibles para exportar");
+    
+    const headers = "Fecha_Hora,PM25_ugm3,Rango_Peligro_PM25,PM10_ugm3,CO2_ppm,Rango_Peligro_CO2,Temperatura_C,Humedad_Pct,Nodo_Emisor\n";
+    
+    const csv = historicalData.map(r => {
+      const pm25_val = r.pm25 ?? 0;
+      const co2_val = r.co2 ?? 0;
+      return `${r.time},${pm25_val},${evaluarRiesgoPM25(pm25_val)},${r.pm10 ?? 0},${co2_val},${evaluarRiesgoCO2(co2_val)},${r.temp ?? 0},${r.hum ?? 0},${r.device || 'NODE-001'}`;
+    }).join("\n");
+    
+    const blob = new Blob([headers + csv], { type: 'text/csv;charset=utf-8;' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `HealthIoT_Reporte_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `HealthIoT_Reporte_Clinico_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
   };
 
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex flex-wrap justify-between items-center gap-4">
-        <div className="flex gap-4">
-          <div className="flex items-center gap-2">
-            <Database className="text-blue-600" size={18} />
-            <select value={range} onChange={(e) => setRange(e.target.value)} className="font-bold text-gray-700 outline-none bg-gray-50 p-2 rounded-lg">
-              <option value={12}>Últimas 12h</option>
-              <option value={24}>Últimas 24h</option>
-              <option value={168}>Última Semana</option>
-            </select>
+        <div className="flex flex-wrap gap-4 items-center">
+          <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
+            <Calendar className="text-blue-600" size={16} />
+            <span className="text-xs font-bold text-gray-500 uppercase">Desde:</span>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-transparent font-bold text-gray-700 outline-none text-sm cursor-pointer" />
           </div>
-          <div className="flex items-center gap-2">
-            <Sliders className="text-purple-600" size={18} />
-            <select value={selectedMetric} onChange={(e) => setSelectedMetric(e.target.value)} className="font-bold text-gray-700 outline-none bg-gray-50 p-2 rounded-lg">
-              <option value="pm25">Visualizar PM 2.5</option>
-              <option value="pm10">Visualizar PM 10</option>
-              <option value="co2">Visualizar CO2</option>
-              <option value="temp">Visualizar Temp</option>
-              <option value="hum">Visualizar Humedad</option>
+          <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
+            <Calendar className="text-blue-600" size={16} />
+            <span className="text-xs font-bold text-gray-500 uppercase">Hasta:</span>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-transparent font-bold text-gray-700 outline-none text-sm cursor-pointer" />
+          </div>
+          <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
+            <Sliders className="text-purple-600" size={16} />
+            <select value={selectedMetric} onChange={(e) => setSelectedMetric(e.target.value)} className="font-bold text-gray-700 outline-none bg-transparent text-sm cursor-pointer">
+              <option value="pm25">Métrica: PM 2.5</option>
+              <option value="pm10">Métrica: PM 10</option>
+              <option value="co2">Métrica: CO2</option>
+              <option value="temp">Métrica: Temp</option>
+              <option value="hum">Métrica: Humedad</option>
             </select>
           </div>
         </div>
-        <button onClick={downloadCSV} className="bg-green-600 text-white px-5 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-green-100">
-          <Download size={18} /> Descargar CSV
+        <button onClick={downloadCSV} className="bg-green-600 text-white px-5 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-green-100 hover:bg-green-700 transition-colors">
+          <Download size={18} /> Exportar Reporte Clínico
         </button>
       </div>
 
@@ -199,19 +244,21 @@ function HistoryView() {
             <tr>
               <th className="p-6">Timestamp</th>
               <th className="p-6">PM 2.5</th>
+              <th className="p-6">PM 10</th>
               <th className="p-6">CO2</th>
               <th className="p-6">Temperatura</th>
-              <th className="p-6">Nodo</th>
+              <th className="p-6">Humedad</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {historicalData.slice(0, 50).map((r, i) => (
               <tr key={i} className="text-sm hover:bg-gray-50/50 transition-colors">
                 <td className="p-6 text-gray-500">{r.time}</td>
-                <td className="p-6 font-bold text-blue-600">{r.pm25} µg/m³</td>
-                <td className="p-6 font-bold text-orange-600">{r.co2} ppm</td>
-                <td className="p-6 font-bold text-purple-600">{r.temp}°C</td>
-                <td className="p-6 text-gray-400">{r.device || "NODE-001"}</td>
+                <td className="p-6 font-bold text-blue-600">{Number(r.pm25).toFixed(1)} µg/m³</td>
+                <td className="p-6 font-bold text-gray-600">{Number(r.pm10).toFixed(1)} µg/m³</td>
+                <td className="p-6 font-bold text-orange-600">{Number(r.co2).toFixed(0)} ppm</td>
+                <td className="p-6 font-bold text-purple-600">{Number(r.temp).toFixed(1)}°C</td>
+                <td className="p-6 font-bold text-cyan-600">{Number(r.hum).toFixed(1)}%</td>
               </tr>
             ))}
           </tbody>
@@ -224,8 +271,6 @@ function HistoryView() {
 function SettingsView({ thresholds, updateThresholds }) {
   const [nodes, setNodes] = useState([]);
   const [editingNode, setEditingNode] = useState(null);
-  
-
   const [localThresh, setLocalThresh] = useState(thresholds);
 
   useEffect(() => { setLocalThresh(thresholds); }, [thresholds]);
@@ -233,14 +278,19 @@ function SettingsView({ thresholds, updateThresholds }) {
   const fetchNodes = () => {
     fetch(`${API_BASE_URL}/nodos`)
       .then(res => res.json())
-      .then(data => setNodes(data));
+      .then(data => {
+        if (data.length === 0) {
+          setNodes([{"id": "NODE-001", "ubicacion": "Av. del Maestro", "estado": "Activo", "rssi": -65}]);
+        } else {
+          setNodes(data);
+        }
+      });
   };
 
   useEffect(() => { fetchNodes(); }, []);
 
-
   const handleAddNode = async () => {
-    const id = window.prompt("Ingrese el ID del nuevo nodo (Ej. NODE-002):");
+    const id = window.prompt("Ingrese el ID del nuevo nodo:");
     if (!id) return;
     const ubicacion = window.prompt("Ingrese la ubicación del nodo:");
     if (!ubicacion) return;
@@ -252,15 +302,13 @@ function SettingsView({ thresholds, updateThresholds }) {
         body: JSON.stringify({ id, ubicacion, estado: 'Activo', rssi: -50 })
       });
       if (res.ok) {
-        alert("Nodo registrado exitosamente en la base de datos");
+        alert("Nodo registrado exitosamente en MongoDB");
         fetchNodes();
       } else {
         const error = await res.json();
         alert(`Error: ${error.detail}`);
       }
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   const handleDelete = async (id) => {
@@ -343,7 +391,7 @@ function SettingsView({ thresholds, updateThresholds }) {
 
       <div className="bg-white p-10 rounded-3xl shadow-xl border border-gray-100">
         <h3 className="text-xl font-black text-gray-800 mb-8 flex items-center gap-2">
-          <Sliders className="text-blue-600" /> Parámetros de Alerta
+          <Sliders className="text-blue-600" /> Parámetros de Alerta Globales
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2">
@@ -358,7 +406,7 @@ function SettingsView({ thresholds, updateThresholds }) {
           </div>
         </div>
         <button onClick={() => updateThresholds(localThresh)} className="mt-10 w-full bg-blue-600 text-white py-5 rounded-2xl font-black shadow-lg hover:shadow-blue-200 transition-all">
-          ACTUALIZAR POLÍTICAS DE ALERTA
+          ACTUALIZAR POLÍTICAS DE ALERTA PARA TODO EL SISTEMA
         </button>
       </div>
     </div>
@@ -427,12 +475,12 @@ function DashboardUnificado({ thresholds, updateThresholds }) {
               {activeTab === 'history' && 'Registros Históricos'}
               {activeTab === 'settings' && 'Control de Infraestructura'}
             </h2>
-            <p className="text-blue-600 font-black uppercase text-xs mt-2 tracking-widest">Estación: Av. del Maestro</p>
+            <p className="text-blue-600 font-black uppercase text-xs mt-2 tracking-widest">Estación Activa: NODE-001 (Av. del Maestro)</p>
           </div>
         </header>
 
         {activeTab === 'dashboard' && <DashboardView data={sensorInfo.current} history={sensorInfo.history} thresholds={thresholds} />}
-        {activeTab === 'history' && <HistoryView />}
+        {activeTab === 'history' && <HistoryView thresholds={thresholds} />}
         {activeTab === 'settings' && <SettingsView thresholds={thresholds} updateThresholds={updateThresholds} />}
       </main>
     </div>
@@ -442,7 +490,6 @@ function DashboardUnificado({ thresholds, updateThresholds }) {
 export default function App() {
   const [thresholds, setThresholds] = useState({ pm25: 15, co2: 1000 });
 
-  
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/configuracion`)
       .then(res => res.json())
@@ -453,7 +500,6 @@ export default function App() {
       })
       .catch(err => console.error("Error al cargar configuración", err));
   }, []);
-
 
   const updateThresholds = async (newT) => {
     setThresholds(newT);
@@ -466,10 +512,8 @@ export default function App() {
           limite_co2: Number(newT.co2) 
         })
       });
-      alert("¡Parámetros guardados! Aplicando a todas las sesiones.");
-    } catch(e) {
-      console.error("Error al guardar", e);
-    }
+      alert("¡Parámetros guardados! Aplicando a todas las sesiones de forma global.");
+    } catch(e) { console.error("Error al guardar", e); }
   };
 
   return (
