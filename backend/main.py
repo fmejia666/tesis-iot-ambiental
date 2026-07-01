@@ -25,7 +25,8 @@ MONGO_URI = "mongodb+srv://mejiafarith12:jyjHAF9YG0srzQaq@utpl.hpoaxun.mongodb.n
 mongo_client = MongoClient(MONGO_URI)
 db_mongo = mongo_client["HealthIoT"]
 coleccion_usuarios = db_mongo["usuarios"]
-coleccion_nodos = db_mongo["nodos"] # NUEVO: Colección real para los dispositivos
+coleccion_nodos = db_mongo["nodos"]
+coleccion_config = db_mongo["configuracion"] 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -57,7 +58,6 @@ class Nodo(BaseModel):
     id: str
     ubicacion: str
     estado: str  
-    # Eliminamos la batería ya que el nodo funciona conectado a la pared
     rssi: Optional[int] = -50    
 
 class DatosSensor(BaseModel):
@@ -68,6 +68,11 @@ class DatosSensor(BaseModel):
     temp: float
     hum: float
 
+class ConfiguracionAlerta(BaseModel):
+    umbral_pm25: float
+    umbral_pm10: float
+    limite_co2: float
+
 # --- FUNCIONES MQTT (AWS) ---
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
@@ -77,7 +82,6 @@ def on_connect(client, userdata, flags, rc):
 def on_message(client, userdata, msg):
     try:
         payload = json.loads(msg.payload.decode('utf-8'))
-        
         point = Point("calidad_aire") \
             .tag("device", payload.get("device_id", "Nodo_Desconocido")) \
             .field("pm25", float(payload.get("pm25", 0))) \
@@ -85,11 +89,10 @@ def on_message(client, userdata, msg):
             .field("co2", float(payload.get("co2", 0))) \
             .field("temp", float(payload.get("temp", 0))) \
             .field("hum", float(payload.get("hum", 0)))
-        
         write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
-        print(f"✅ Datos guardados en InfluxDB: {payload}")
+        print(f"✅ Datos guardados: {payload}")
     except Exception as e:
-        print(f"❌ Error en la ingesta de datos: {e}")
+        print(f"❌ Error: {e}")
 
 mqtt_client = mqtt.Client(client_id="Backend_HealthIoT_Service")
 mqtt_client.on_connect = on_connect
@@ -110,114 +113,63 @@ def startup_event():
     mqtt_client.connect(AWS_ENDPOINT, 8883, 60)
     mqtt_client.loop_start()
 
+# --- ENDPOINTS CONFIGURACIÓN (GLOBAL) ---
+@app.get("/api/configuracion")
+async def obtener_configuracion():
+    config = coleccion_config.find_one({"_id": "politicas_globales"})
+    return config if config else {"umbral_pm25": 15, "umbral_pm10": 50, "limite_co2": 1000}
+
+@app.put("/api/configuracion")
+async def actualizar_configuracion(config: ConfiguracionAlerta):
+    coleccion_config.update_one({"_id": "politicas_globales"}, {"$set": config.dict()}, upsert=True)
+    return {"mensaje": "Configuración actualizada"}
+
 # --- ENDPOINTS USUARIOS ---
 @app.post("/login")
 async def login(request: LoginRequest):
     usuario_db = coleccion_usuarios.find_one({"email": request.email})
-    if not usuario_db:
-        raise HTTPException(status_code=404, detail="Usuario no registrado en el sistema")
-    
-    contrasena_valida = pwd_context.verify(request.password, usuario_db["password"])
-    if not contrasena_valida:
+    if not usuario_db or not pwd_context.verify(request.password, usuario_db["password"]):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-    
     return {"token": "auth_token_utpl_2026", "user": request.email}
-
-@app.post("/api/crear_admin_secreto")
-async def crear_admin(usuario: NuevoUsuario):
-    if coleccion_usuarios.find_one({"email": usuario.email}):
-        raise HTTPException(status_code=400, detail="El usuario ya existe")
-        
-    password_hash = pwd_context.hash(usuario.password)
-    
-    nuevo_doc = {
-        "email": usuario.email,
-        "password": password_hash,
-        "rol": "administrador"
-    }
-    coleccion_usuarios.insert_one(nuevo_doc)
-    return {"mensaje": f"Usuario {usuario.email} creado con éxito en MongoDB"}
 
 # --- ENDPOINTS TELEMETRÍA ---
 @app.post("/api/telemetria")
 async def recibir_telemetria(datos: DatosSensor):
-    try:
-        punto = Point("calidad_aire") \
-            .tag("device", datos.device_id) \
-            .field("pm25", float(datos.pm25)) \
-            .field("pm10", float(datos.pm10)) \
-            .field("co2", float(datos.co2)) \
-            .field("temp", float(datos.temp)) \
-            .field("hum", float(datos.hum))
-        
-        write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=punto)
-        return {"estado": "éxito", "mensaje": "Telemetría ambiental registrada en InfluxDB"}
-    except Exception as e:
-        return {"estado": "error", "mensaje": str(e)}
+    punto = Point("calidad_aire").tag("device", datos.device_id) \
+        .field("pm25", float(datos.pm25)).field("pm10", float(datos.pm10)) \
+        .field("co2", float(datos.co2)).field("temp", float(datos.temp)).field("hum", float(datos.hum))
+    write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=punto)
+    return {"estado": "éxito"}
 
 @app.get("/api/history")
 async def get_history(range_h: int = 24):
-    query = f'''
-        from(bucket: "{INFLUX_BUCKET}")
-        |> range(start: -{range_h}h)
-        |> filter(fn: (r) => r["_measurement"] == "calidad_aire")
-        |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
-        |> sort(columns: ["_time"], desc: false)
-    '''
+    query = f'from(bucket: "{INFLUX_BUCKET}") |> range(start: -{range_h}h) |> filter(fn: (r) => r["_measurement"] == "calidad_aire") |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value") |> sort(columns: ["_time"], desc: false)'
     result = query_api.query(org=INFLUX_ORG, query=query)
-    output = []
-    for table in result:
-        for record in table.records:
-            output.append({
-                "time": record.get_time().strftime('%Y-%m-%d %H:%M:%S'),
-                "pm25": record.values.get("pm25"),
-                "pm10": record.values.get("pm10"),
-                "co2": record.values.get("co2"),
-                "temp": record.values.get("temp"),
-                "hum": record.values.get("hum"),
-                "device": record.values.get("device")
-            })
-    return output
-
+    return [{"time": r.get_time().strftime('%Y-%m-%d %H:%M:%S'), **r.values} for table in result for r in table.records]
 
 @app.get("/nodos", response_model=List[Nodo])
-async def obtener_nodos():
-
-    nodos_cursor = coleccion_nodos.find({}, {"_id": 0})
-    return list(nodos_cursor)
+async def obtener_nodos(): return list(coleccion_nodos.find({}, {"_id": 0}))
 
 @app.post("/nodos")
 async def registrar_nodo(nuevo_nodo: Nodo):
-   
-    if coleccion_nodos.find_one({"id": nuevo_nodo.id}):
-        raise HTTPException(status_code=400, detail="Este ID de nodo ya existe en la base de datos")
-    
+    if coleccion_nodos.find_one({"id": nuevo_nodo.id}): raise HTTPException(status_code=400, detail="Ya existe")
     coleccion_nodos.insert_one(nuevo_nodo.dict())
-    return {"mensaje": "Nodo registrado exitosamente en MongoDB"}
+    return {"mensaje": "OK"}
 
 @app.put("/nodos/{nodo_id}")
 async def editar_nodo(nodo_id: str, datos: Nodo):
-    resultado = coleccion_nodos.update_one(
-        {"id": nodo_id},
-        {"$set": datos.dict()}
-    )
-    if resultado.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Nodo no encontrado en la base de datos")
-    return {"mensaje": "Cambios guardados exitosamente"}
+    coleccion_nodos.update_one({"id": nodo_id}, {"$set": datos.dict()})
+    return {"mensaje": "OK"}
 
 @app.delete("/nodos/{nodo_id}")
 async def eliminar_nodo(nodo_id: str):
-    resultado = coleccion_nodos.delete_one({"id": nodo_id})
-    if resultado.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Nodo no encontrado")
-    return {"mensaje": f"El dispositivo {nodo_id} ha sido borrado permanentemente de la red"}
+    coleccion_nodos.delete_one({"id": nodo_id})
+    return {"mensaje": "OK"}
 
 @app.post("/nodos/{nodo_id}/restart")
 async def reiniciar_nodo(nodo_id: str):
-    comando = {"action": "reboot", "origin": "web_admin"}
-    mqtt_client.publish(f"{TOPIC_COMANDOS}{nodo_id}", json.dumps(comando))
-    return {"mensaje": f"Señal de reinicio enviada a {nodo_id}"}
+    mqtt_client.publish(f"{TOPIC_COMANDOS}{nodo_id}", json.dumps({"action": "reboot"}))
+    return {"mensaje": "Enviado"}
 
 @app.get("/")
-def inicio():
-    return {"status": "HealthIoT Backend Online"}
+def inicio(): return {"status": "HealthIoT Backend Online"}
