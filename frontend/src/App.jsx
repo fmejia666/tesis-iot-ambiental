@@ -3,12 +3,12 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 import 'leaflet/dist/leaflet.css';
 import { 
   Wind, Activity, Thermometer, LayoutDashboard, Database, Download, 
-  MapPin, Sliders, Save, LogOut, ShieldAlert, Plus, RotateCw, Edit2, X, Check,
-  Battery, Wifi, Trash2, Calendar
+  MapPin, Sliders, LogOut, ShieldAlert, Plus, RotateCw, Edit2, Check,
+  Wifi, Trash2, Calendar, Droplets
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, 
-  ResponsiveContainer, Legend, AreaChart, Area 
+  ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
 import { MapContainer, TileLayer, Circle, Popup, useMap } from 'react-leaflet';
 import { useSensorData } from './useSensorData';
@@ -22,9 +22,8 @@ function KPICard({ title, value, unit, icon, level, message }) {
     warning: "border-yellow-500 bg-yellow-50 text-yellow-700",
     normal: "border-green-500 bg-green-50 text-green-700"
   };
-
   return (
-    <div className={`p-6 rounded-2xl border-t-8 shadow-lg bg-white transition-all ${styles[level] || 'border-gray-200'}`}>
+    <div className={`p-6 rounded-2xl border-t-8 shadow-lg bg-white ${styles[level] || 'border-gray-200'}`}>
       <div className="flex items-center justify-between mb-4">
         <div className="p-3 rounded-xl bg-white shadow-sm">{icon}</div>
         <span className="text-xs font-black uppercase tracking-widest">{level}</span>
@@ -38,31 +37,24 @@ function KPICard({ title, value, unit, icon, level, message }) {
 
 function MapResizer() {
   const map = useMap();
-  useEffect(() => {
-    setTimeout(() => { map.invalidateSize(); }, 300);
-  }, [map]);
+  useEffect(() => { setTimeout(() => { map.invalidateSize(); }, 300); }, [map]);
   return null;
 }
 
 function DashboardView({ data, history, thresholds }) {
   const { metrics } = data;
   const sensorLocation = [-0.1231680, -78.4925269]; 
-
-  const pm25 = metrics.pm25 ?? metrics.pm25_ugm3 ?? 0;
-  const pm10 = metrics.pm10 ?? metrics.pm10_ugm3 ?? 0;
-  const co2 = metrics.co2 ?? metrics.co2_ppm ?? 0;
-  const temp = metrics.temp ?? metrics.temperature_c ?? 0;
-  const hum = metrics.hum ?? metrics.humidity_pct ?? 0;
+  const pm25 = metrics.pm25 ?? 0;
+  const pm10 = metrics.pm10 ?? 0;
+  const co2 = metrics.co2 ?? 0;
+  const temp = metrics.temp ?? 0;
+  const hum = metrics.hum ?? 0;
 
   const pm25Risk = pm25 > thresholds.pm25 ? 'danger' : (pm25 > (thresholds.pm25 * 0.5) ? 'warning' : 'normal');
   const pm10Risk = pm10 > thresholds.pm10 ? 'danger' : (pm10 > (thresholds.pm10 * 0.5) ? 'warning' : 'normal');
   const co2Risk = co2 > thresholds.co2 ? 'danger' : 'normal';
 
-  const getMapRiskColor = (level) => {
-    if (level === 'danger') return '#ef4444';
-    if (level === 'warning') return '#eab308';
-    return '#22c55e';
-  };
+  const getMapRiskColor = (level) => level === 'danger' ? '#ef4444' : (level === 'warning' ? '#eab308' : '#22c55e');
 
   const metricasGraficos = [
     { key: 'pm25', name: 'Partículas PM 2.5', color: '#3b82f6' },
@@ -77,47 +69,37 @@ function DashboardView({ data, history, thresholds }) {
       <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-5 gap-6">
         <KPICard title="PM 2.5" value={Number(pm25).toFixed(1)} unit="µg/m³" icon={<Wind className="text-blue-500" />} level={pm25Risk} message={`Umbral: ${thresholds.pm25}`} />
         <KPICard title="PM 10" value={Number(pm10).toFixed(1)} unit="µg/m³" icon={<Wind className="text-gray-500" />} level={pm10Risk} message={`Umbral: ${thresholds.pm10}`} />
-        <KPICard title="Dióxido de Carbono" value={Number(co2).toFixed(1)} unit="ppm" icon={<Activity className="text-orange-500" />} level={co2Risk} message={`Umbral: ${thresholds.co2}`} />
-        <KPICard title="Temperatura" value={Number(temp).toFixed(1)} unit="°C" icon={<Thermometer className="text-purple-500" />} level="normal" message="Ambiente controlado" />
-        <KPICard title="Humedad" value={Number(hum).toFixed(1)} unit="%" icon={<Activity className="text-cyan-500" />} level="normal" message="Nivel óptimo" />
+        <KPICard title="CO2" value={Number(co2).toFixed(1)} unit="ppm" icon={<Activity className="text-orange-500" />} level={co2Risk} message={`Umbral: ${thresholds.co2}`} />
+        <KPICard title="Temperatura" value={Number(temp).toFixed(1)} unit="°C" icon={<Thermometer className="text-purple-500" />} level="normal" />
+        <KPICard title="Humedad" value={Number(hum).toFixed(1)} unit="%" icon={<Droplets className="text-cyan-500" />} level="normal" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
         <div className="lg:col-span-2 space-y-6">
           {metricasGraficos.map((grafico) => (
             <div key={grafico.key} className="bg-white p-6 rounded-3xl shadow-xl border border-gray-100">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-gray-800 tracking-tight">{grafico.name}</h2>
-                <span className="flex items-center gap-2 bg-green-100 text-green-700 px-3 py-1 rounded-full text-[10px] font-bold animate-pulse">
-                  <span className="w-2 h-2 bg-green-500 rounded-full"></span> EN VIVO
-                </span>
-              </div>
+              <h2 className="text-lg font-bold text-gray-800 mb-4">{grafico.name}</h2>
               <div className="h-48 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={history}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.2} />
                     <XAxis dataKey="time" hide />
-                    <YAxis tick={{fontSize: 10}} width={40} />
-                    <RechartsTooltip contentStyle={{ borderRadius: '15px', border: 'none' }} />
-                    <Line type="monotone" dataKey={grafico.key} name={grafico.name} stroke={grafico.color} strokeWidth={3} dot={false} />
+                    <YAxis domain={['auto', 'auto']} tick={{fontSize: 10}} width={40} />
+                    <RechartsTooltip />
+                    <Line type="monotone" dataKey={grafico.key} stroke={grafico.color} strokeWidth={3} dot={false} connectNulls={true} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             </div>
           ))}
         </div>
-
-        <div className="bg-white p-6 rounded-3xl shadow-xl border border-gray-100 overflow-hidden sticky top-8">
-          <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-            <MapPin size={20} className="text-red-500" /> Georreferenciación
-          </h2>
-          <div className="h-80 w-full rounded-2xl overflow-hidden z-0">
+        <div className="bg-white p-6 rounded-3xl shadow-xl border border-gray-100 sticky top-8">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">Georreferenciación</h2>
+          <div className="h-80 w-full rounded-2xl overflow-hidden">
             <MapContainer center={sensorLocation} zoom={17} style={{ height: '100%', width: '100%' }}>
               <MapResizer />
               <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
-              <Circle center={sensorLocation} radius={100} pathOptions={{ color: getMapRiskColor(pm25Risk), fillColor: getMapRiskColor(pm25Risk), fillOpacity: 0.3 }}>
-                <Popup>Estación Activa: NODE-001 (Av. del Maestro)</Popup>
-              </Circle>
+              <Circle center={sensorLocation} radius={100} pathOptions={{ color: getMapRiskColor(pm25Risk), fillOpacity: 0.3 }} />
             </MapContainer>
           </div>
         </div>
@@ -126,415 +108,86 @@ function DashboardView({ data, history, thresholds }) {
   );
 }
 
-function HistoryView({ thresholds }) {
-  const [historicalData, setHistoricalData] = useState([]);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [selectedMetric, setSelectedMetric] = useState('pm25');
-
-  const fetchHistory = async () => {
-    try {
-      let url = `${API_BASE_URL}/api/history`;
-      if (startDate && endDate) {
-        url += `?start_date=${startDate}&end_date=${endDate}`;
-      } else {
-        url += `?range_h=24`;
-      }
-      const response = await fetch(url);
-      const data = await response.json();
-      setHistoricalData(data);
-    } catch (error) { console.error("Error cargando historial"); }
-  };
-
-  useEffect(() => { fetchHistory(); }, [startDate, endDate]);
-
-  const evaluarRiesgoPM25 = (val) => {
-    if (val > thresholds.pm25) return 'CRITICO (Excede OMS)';
-    if (val > thresholds.pm25 * 0.5) return 'PRECAUCION (Moderado)';
-    return 'OPTIMO (Seguro)';
-  };
-
-  const evaluarRiesgoPM10 = (val) => {
-    if (val > thresholds.pm10) return 'CRITICO (Excede OMS)';
-    if (val > thresholds.pm10 * 0.5) return 'PRECAUCION (Moderado)';
-    return 'OPTIMO (Seguro)';
-  };
-
-  const evaluarRiesgoCO2 = (val) => {
-    if (val > thresholds.co2) return 'CRITICO (Ambiente Confinado)';
-    return 'OPTIMO (Ventilado)';
-  };
-
-  const downloadCSV = () => {
-    if (historicalData.length === 0) return alert("No hay datos disponibles para exportar");
-    
-    const headers = "Fecha_Hora,PM25_ugm3,Rango_Peligro_PM25,PM10_ugm3,Rango_Peligro_PM10,CO2_ppm,Rango_Peligro_CO2,Temperatura_C,Humedad_Pct,Nodo_Emisor\n";
-    
-    const csv = historicalData.map(r => {
-      const pm25_val = r.pm25 ?? 0;
-      const pm10_val = r.pm10 ?? 0;
-      const co2_val = r.co2 ?? 0;
-      return `${r.time},${pm25_val},${evaluarRiesgoPM25(pm25_val)},${pm10_val},${evaluarRiesgoPM10(pm10_val)},${co2_val},${evaluarRiesgoCO2(co2_val)},${r.temp ?? 0},${r.hum ?? 0},${r.device || 'NODE-001'}`;
-    }).join("\n");
-    
-    const blob = new Blob([headers + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `HealthIoT_Reporte_Clinico_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-  };
-
-  return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex flex-wrap justify-between items-center gap-4">
-        <div className="flex flex-wrap gap-4 items-center">
-          <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
-            <Calendar className="text-blue-600" size={16} />
-            <span className="text-xs font-bold text-gray-500 uppercase">Desde:</span>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-transparent font-bold text-gray-700 outline-none text-sm cursor-pointer" />
-          </div>
-          <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
-            <Calendar className="text-blue-600" size={16} />
-            <span className="text-xs font-bold text-gray-500 uppercase">Hasta:</span>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-transparent font-bold text-gray-700 outline-none text-sm cursor-pointer" />
-          </div>
-          <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
-            <Sliders className="text-purple-600" size={16} />
-            <select value={selectedMetric} onChange={(e) => setSelectedMetric(e.target.value)} className="font-bold text-gray-700 outline-none bg-transparent text-sm cursor-pointer">
-              <option value="pm25">Métrica: PM 2.5</option>
-              <option value="pm10">Métrica: PM 10</option>
-              <option value="co2">Métrica: CO2</option>
-              <option value="temp">Métrica: Temp</option>
-              <option value="hum">Métrica: Humedad</option>
-            </select>
-          </div>
-        </div>
-        <button onClick={downloadCSV} className="bg-green-600 text-white px-5 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-green-100 hover:bg-green-700 transition-colors">
-          <Download size={18} /> Exportar Reporte Clínico
-        </button>
-      </div>
-
-      <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100">
-        <h3 className="text-gray-500 text-sm font-black uppercase mb-4 tracking-widest">
-          Tendencia Histórica: {selectedMetric.toUpperCase()}
-        </h3>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={historicalData}>
-              <defs>
-                <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="time" hide />
-              <YAxis tick={{fontSize: 12}} />
-              <RechartsTooltip />
-              <Area type="monotone" dataKey={selectedMetric} stroke="#3b82f6" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest">
-            <tr>
-              <th className="p-6">Timestamp</th>
-              <th className="p-6">PM 2.5</th>
-              <th className="p-6">PM 10</th>
-              <th className="p-6">CO2</th>
-              <th className="p-6">Temperatura</th>
-              <th className="p-6">Humedad</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {historicalData.slice(0, 50).map((r, i) => (
-              <tr key={i} className="text-sm hover:bg-gray-50/50 transition-colors">
-                <td className="p-6 text-gray-500">{r.time}</td>
-                <td className="p-6 font-bold text-blue-600">{Number(r.pm25).toFixed(1)} µg/m³</td>
-                <td className="p-6 font-bold text-gray-600">{Number(r.pm10).toFixed(1)} µg/m³</td>
-                <td className="p-6 font-bold text-orange-600">{Number(r.co2).toFixed(0)} ppm</td>
-                <td className="p-6 font-bold text-purple-600">{Number(r.temp).toFixed(1)}°C</td>
-                <td className="p-6 font-bold text-cyan-600">{Number(r.hum).toFixed(1)}%</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 function SettingsView({ thresholds, updateThresholds }) {
-  const [nodes, setNodes] = useState([]);
-  const [editingNode, setEditingNode] = useState(null);
   const [localThresh, setLocalThresh] = useState(thresholds);
-
   useEffect(() => { setLocalThresh(thresholds); }, [thresholds]);
 
-  const fetchNodes = () => {
-    fetch(`${API_BASE_URL}/nodos`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.length === 0) {
-          setNodes([{"id": "NODE-001", "ubicacion": "Av. del Maestro", "estado": "Activo", "rssi": -65}]);
-        } else {
-          setNodes(data);
-        }
-      });
-  };
-
-  useEffect(() => { fetchNodes(); }, []);
-
-  const handleAddNode = async () => {
-    const id = window.prompt("Ingrese el ID del nuevo nodo:");
-    if (!id) return;
-    const ubicacion = window.prompt("Ingrese la ubicación del nodo:");
-    if (!ubicacion) return;
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/nodos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, ubicacion, estado: 'Activo', rssi: -50 })
-      });
-      if (res.ok) {
-        alert("Nodo registrado exitosamente en MongoDB");
-        fetchNodes();
-      } else {
-        const error = await res.json();
-        alert(`Error: ${error.detail}`);
-      }
-    } catch (e) { console.error(e); }
-  };
-
-  const handleDelete = async (id) => {
-    if (!window.confirm("¿Confirmas la eliminación de este nodo de la red?")) return;
-    await fetch(`${API_BASE_URL}/nodos/${id}`, { method: 'DELETE' });
-    fetchNodes();
-  };
-
-  const handleRestart = async (id) => {
-    await fetch(`${API_BASE_URL}/nodos/${id}/restart`, { method: 'POST' });
-    alert("Orden de reinicio enviada al hardware vía MQTT.");
-  };
-
-  const handleSaveEdit = async () => {
-    await fetch(`${API_BASE_URL}/nodos/${editingNode.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(editingNode)
+  const handleSave = () => {
+    updateThresholds({
+      pm25: Number(localThresh.pm25),
+      pm10: Number(localThresh.pm10),
+      co2: Number(localThresh.co2)
     });
-    setEditingNode(null);
-    fetchNodes();
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-10 pb-20">
-      <div className="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
-        <div className="p-6 border-b border-gray-50 flex justify-between items-center">
-          <h3 className="text-xl font-black text-gray-800">Infraestructura de Nodos</h3>
-          <button onClick={handleAddNode} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 transition-colors">
-            <Plus size={18}/> Nuevo Punto de Monitoreo
-          </button>
+    <div className="bg-white p-10 rounded-3xl shadow-xl border border-gray-100">
+      <h3 className="text-xl font-black text-gray-800 mb-8">Parámetros de Alerta Globales</h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <div className="space-y-2">
+          <label className="text-xs font-black text-gray-400 uppercase">Umbral PM 2.5</label>
+          <input type="number" className="w-full border-2 border-gray-100 p-4 rounded-2xl font-bold" 
+                 value={localThresh.pm25} onChange={e => setLocalThresh({...localThresh, pm25: e.target.value})} />
         </div>
-        
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest">
-            <tr>
-              <th className="p-6">Nodo ID</th>
-              <th className="p-6">Ubicación</th>
-              <th className="p-6">Estado</th>
-              <th className="p-6">Señal</th>
-              <th className="p-6 text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {nodes.map((node) => (
-              <tr key={node.id} className="hover:bg-gray-50/50 transition-colors">
-                <td className="p-6 font-bold text-blue-600">{node.id}</td>
-                <td className="p-6">
-                  {editingNode?.id === node.id ? (
-                    <input className="border p-2 rounded-lg w-full" value={editingNode.ubicacion} onChange={e => setEditingNode({...editingNode, ubicacion: e.target.value})} />
-                  ) : <span className="text-gray-600 font-medium">{node.ubicacion}</span>}
-                </td>
-                <td className="p-6">
-                  <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${node.estado === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                    {node.estado}
-                  </span>
-                </td>
-                <td className="p-6">
-                  <div className="flex items-center gap-2 text-gray-500 font-bold">
-                    <Wifi size={16} className="text-blue-400" />
-                    {node.rssi} dBm
-                  </div>
-                </td>
-                <td className="p-6 text-right flex justify-end gap-2">
-                  {editingNode?.id === node.id ? (
-                    <button onClick={handleSaveEdit} className="p-2 bg-green-500 text-white rounded-lg"><Check size={18}/></button>
-                  ) : (
-                    <>
-                      <button onClick={() => handleRestart(node.id)} className="p-2 text-orange-500 hover:bg-orange-50 rounded-lg"><RotateCw size={18}/></button>
-                      <button onClick={() => setEditingNode(node)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Edit2 size={18}/></button>
-                      <button onClick={() => handleDelete(node.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={18}/></button>
-                    </>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="space-y-2">
+          <label className="text-xs font-black text-gray-400 uppercase">Umbral PM 10</label>
+          <input type="number" className="w-full border-2 border-gray-100 p-4 rounded-2xl font-bold" 
+                 value={localThresh.pm10} onChange={e => setLocalThresh({...localThresh, pm10: e.target.value})} />
+        </div>
+        <div className="space-y-2">
+          <label className="text-xs font-black text-gray-400 uppercase">Límite CO2</label>
+          <input type="number" className="w-full border-2 border-gray-100 p-4 rounded-2xl font-bold" 
+                 value={localThresh.co2} onChange={e => setLocalThresh({...localThresh, co2: e.target.value})} />
+        </div>
       </div>
-
-      <div className="bg-white p-10 rounded-3xl shadow-xl border border-gray-100">
-        <h3 className="text-xl font-black text-gray-800 mb-8 flex items-center gap-2">
-          <Sliders className="text-blue-600" /> Parámetros de Alerta Globales
-        </h3>
-        
-   
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase">Umbral Crítico PM 2.5</label>
-            <input type="number" className="w-full border-2 border-gray-100 p-4 rounded-2xl focus:border-blue-500 outline-none font-bold" 
-                   value={localThresh.pm25} onChange={e => setLocalThresh({...localThresh, pm25: e.target.value})} />
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase">Umbral Crítico PM 10</label>
-            <input type="number" className="w-full border-2 border-gray-100 p-4 rounded-2xl focus:border-blue-500 outline-none font-bold" 
-                   value={localThresh.pm10} onChange={e => setLocalThresh({...localThresh, pm10: e.target.value})} />
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-black text-gray-400 uppercase">Límite CO2 (ppm)</label>
-            <input type="number" className="w-full border-2 border-gray-100 p-4 rounded-2xl focus:border-blue-500 outline-none font-bold" 
-                   value={localThresh.co2} onChange={e => setLocalThresh({...localThresh, co2: e.target.value})} />
-          </div>
-        </div>
-        
-        <button onClick={() => updateThresholds(localThresh)} className="mt-10 w-full bg-blue-600 text-white py-5 rounded-2xl font-black shadow-lg hover:shadow-blue-200 transition-all">
-          ACTUALIZAR POLÍTICAS DE ALERTA PARA TODO EL SISTEMA
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function DashboardUnificado({ thresholds, updateThresholds }) {
-  const sensorInfo = useSensorData();
-  const [activeTab, setActiveTab] = useState('dashboard');
-  const navigate = useNavigate();
-  const isAdmin = !!localStorage.getItem('token');
-
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    setActiveTab('dashboard');
-    navigate('/');
-  };
-
-  if (!sensorInfo || !sensorInfo.current) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="animate-bounce text-blue-600 font-black text-4xl tracking-tighter">HEALTH<span className="text-gray-300">IOT</span></div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50 flex">
-      <aside className="w-72 bg-white border-r border-gray-100 shadow-xl flex flex-col justify-between hidden md:flex">
-        <div>
-          <div className="p-10">
-            <h1 className="text-3xl font-black text-gray-900 tracking-tighter">HEALTH<span className="text-blue-600">IOT</span></h1>
-          </div>
-          <nav className="px-6 space-y-3">
-            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${activeTab === 'dashboard' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-gray-400 hover:bg-gray-50'}`}>
-              <LayoutDashboard size={22} /> Dashboard
-            </button>
-            <button onClick={() => setActiveTab('history')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${activeTab === 'history' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-gray-400 hover:bg-gray-50'}`}>
-              <Database size={22} /> Historial
-            </button>
-            {isAdmin && (
-              <button onClick={() => setActiveTab('settings')} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl font-bold transition-all ${activeTab === 'settings' ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'text-gray-400 hover:bg-gray-50'}`}>
-                <Sliders size={22} /> Gestión
-              </button>
-            )}
-          </nav>
-        </div>
-        <div className="p-8">
-          {isAdmin ? (
-            <button onClick={handleLogout} className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-black text-red-500 hover:bg-red-50 transition-all border-2 border-transparent hover:border-red-100">
-              <LogOut size={20} /> CERRAR SESIÓN
-            </button>
-          ) : (
-            <button onClick={() => navigate('/login')} className="w-full py-4 rounded-2xl font-black text-gray-400 border-2 border-gray-50 hover:bg-gray-50 flex items-center justify-center gap-2">
-              <ShieldAlert size={18} /> ACCESO TÉCNICO
-            </button>
-          )}
-        </div>
-      </aside>
-
-      <main className="flex-1 p-12 overflow-y-auto">
-        <header className="mb-12 flex justify-between items-end">
-          <div>
-            <h2 className="text-4xl font-black text-gray-900 tracking-tight">
-              {activeTab === 'dashboard' && 'Calidad del Aire'}
-              {activeTab === 'history' && 'Registros Históricos'}
-              {activeTab === 'settings' && 'Control de Infraestructura'}
-            </h2>
-            <p className="text-blue-600 font-black uppercase text-xs mt-2 tracking-widest">Estación Activa: NODE-001 (Av. del Maestro)</p>
-          </div>
-        </header>
-
-        {activeTab === 'dashboard' && <DashboardView data={sensorInfo.current} history={sensorInfo.history} thresholds={thresholds} />}
-        {activeTab === 'history' && <HistoryView thresholds={thresholds} />}
-        {activeTab === 'settings' && <SettingsView thresholds={thresholds} updateThresholds={updateThresholds} />}
-      </main>
+      <button onClick={handleSave} className="mt-10 w-full bg-blue-600 text-white py-5 rounded-2xl font-black hover:bg-blue-700">GUARDAR POLÍTICAS</button>
     </div>
   );
 }
 
 export default function App() {
   const [thresholds, setThresholds] = useState({ pm25: 15, pm10: 50, co2: 1000 });
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const sensorInfo = useSensorData();
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/configuracion`)
       .then(res => res.json())
-      .then(data => {
-        if(data.umbral_pm25) {
-          setThresholds({ 
-            pm25: data.umbral_pm25, 
-            pm10: data.umbral_pm10 || 50, 
-            co2: data.limite_co2 
-          });
-        }
-      })
-      .catch(err => console.error("Error al cargar configuración", err));
+      .then(data => { if(data.umbral_pm25) setThresholds({ pm25: data.umbral_pm25, pm10: data.umbral_pm10, co2: data.limite_co2 }); })
+      .catch(err => console.error("Error", err));
   }, []);
 
   const updateThresholds = async (newT) => {
-    setThresholds(newT);
     try {
       await fetch(`${API_BASE_URL}/api/configuracion`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          umbral_pm25: Number(newT.pm25), 
-          umbral_pm10: Number(newT.pm10),
-          limite_co2: Number(newT.co2) 
-        })
+        body: JSON.stringify(newT)
       });
-      alert("¡Parámetros guardados! Aplicando a todas las sesiones de forma global.");
-    } catch(e) { console.error("Error al guardar", e); }
+      setThresholds(newT);
+      alert("¡Configuración guardada!");
+    } catch(e) { console.error(e); }
   };
 
+  if (!sensorInfo || !sensorInfo.current) return <div className="min-h-screen flex items-center justify-center font-black text-2xl">CARGANDO...</div>;
+
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<DashboardUnificado thresholds={thresholds} updateThresholds={updateThresholds} />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-    </BrowserRouter>
+    <div className="min-h-screen bg-gray-50 flex">
+      <aside className="w-72 bg-white border-r p-10 flex flex-col justify-between hidden md:flex">
+        <div className="space-y-10">
+          <h1 className="text-2xl font-black">HEALTH<span className="text-blue-600">IOT</span></h1>
+          <nav className="space-y-4">
+            <button onClick={() => setActiveTab('dashboard')} className="w-full text-left font-bold text-gray-500">Dashboard</button>
+            <button onClick={() => setActiveTab('history')} className="w-full text-left font-bold text-gray-500">Historial</button>
+            <button onClick={() => setActiveTab('settings')} className="w-full text-left font-bold text-gray-500">Gestión</button>
+          </nav>
+        </div>
+      </aside>
+      <main className="flex-1 p-12 overflow-y-auto">
+        {activeTab === 'dashboard' && <DashboardView data={sensorInfo.current} history={sensorInfo.history} thresholds={thresholds} />}
+        {activeTab === 'settings' && <SettingsView thresholds={thresholds} updateThresholds={updateThresholds} />}
+      </main>
+    </div>
   );
 }
