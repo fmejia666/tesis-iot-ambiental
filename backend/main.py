@@ -26,7 +26,7 @@ mongo_client = MongoClient(MONGO_URI)
 db_mongo = mongo_client["HealthIoT"]
 coleccion_usuarios = db_mongo["usuarios"]
 coleccion_nodos = db_mongo["nodos"]
-coleccion_config = db_mongo["configuracion"]
+coleccion_config = db_mongo["configuracion"] 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -57,8 +57,8 @@ class NuevoUsuario(BaseModel):
 class Nodo(BaseModel):
     id: str
     ubicacion: str
-    estado: str
-    rssi: Optional[int] = -50
+    estado: str  
+    rssi: Optional[int] = -50    
 
 class DatosSensor(BaseModel):
     device_id: str
@@ -73,7 +73,7 @@ class ConfiguracionAlerta(BaseModel):
     umbral_pm10: float
     limite_co2: float
 
-# --- FUNCIONES MQTT ---
+# --- FUNCIONES MQTT (AWS) ---
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
         print("✅ CONEXIÓN EXITOSA AL BROKER DE AWS")
@@ -90,8 +90,9 @@ def on_message(client, userdata, msg):
             .field("temp", float(payload.get("temp", 0))) \
             .field("hum", float(payload.get("hum", 0)))
         write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
+        print(f"✅ Datos guardados: {payload}")
     except Exception as e:
-        print(f"❌ Error en la ingesta: {e}")
+        print(f"❌ Error: {e}")
 
 mqtt_client = mqtt.Client(client_id="Backend_HealthIoT_Service")
 mqtt_client.on_connect = on_connect
@@ -109,30 +110,21 @@ except:
 
 @app.on_event("startup")
 def startup_event():
-    try:
-        mqtt_client.connect(AWS_ENDPOINT, 8883, 60)
-        mqtt_client.loop_start()
-    except Exception as e:
-        print(f"❌ Error al iniciar MQTT: {e}")
+    mqtt_client.connect(AWS_ENDPOINT, 8883, 60)
+    mqtt_client.loop_start()
 
-# --- ENDPOINTS ---
+# --- ENDPOINTS CONFIGURACIÓN (GLOBAL) ---
 @app.get("/api/configuracion")
 async def obtener_configuracion():
     config = coleccion_config.find_one({"_id": "politicas_globales"})
-    if config:
-        print(f"DEBUG: MongoDB devolvió: {config}")
-        return config
-    else:
-        print("DEBUG: No se encontró config, usando defaults.")
-        return {"umbral_pm25": 15, "umbral_pm10": 50, "limite_co2": 1000}
+    return config if config else {"umbral_pm25": 15, "umbral_pm10": 50, "limite_co2": 1000}
 
 @app.put("/api/configuracion")
 async def actualizar_configuracion(config: ConfiguracionAlerta):
-    data = config.dict()
-    coleccion_config.update_one({"_id": "politicas_globales"}, {"$set": data}, upsert=True)
-    print(f"DEBUG: Configuración guardada en DB: {data}")
+    coleccion_config.update_one({"_id": "politicas_globales"}, {"$set": config.dict()}, upsert=True)
     return {"mensaje": "Configuración actualizada"}
 
+# --- ENDPOINTS USUARIOS ---
 @app.post("/login")
 async def login(request: LoginRequest):
     usuario_db = coleccion_usuarios.find_one({"email": request.email})
@@ -140,6 +132,7 @@ async def login(request: LoginRequest):
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
     return {"token": "auth_token_utpl_2026", "user": request.email}
 
+# --- ENDPOINTS TELEMETRÍA ---
 @app.post("/api/telemetria")
 async def recibir_telemetria(datos: DatosSensor):
     punto = Point("calidad_aire").tag("device", datos.device_id) \
