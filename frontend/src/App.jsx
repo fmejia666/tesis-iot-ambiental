@@ -73,12 +73,12 @@ function DashboardView({ data, history, thresholds }) {
     return '#22c55e';
   };
 
+
   const metricasGraficos = [
     { key: 'pm25', name: 'Partículas PM 2.5', color: '#3b82f6' },
     { key: 'pm10', name: 'Partículas PM 10', color: '#64748b' },
     { key: 'co2', name: 'Dióxido de Carbono (CO2)', color: '#f97316' },
-    { key: 'temp', name: 'Temperatura', color: '#a855f7' },
-    { key: 'hum', name: 'Humedad Relativa', color: '#06b6d4' }
+    { key: 'temp', name: 'Temperatura', color: '#a855f7' }
   ];
 
   return (
@@ -88,6 +88,7 @@ function DashboardView({ data, history, thresholds }) {
         <KPICard title="PM 10" value={Number(pm10).toFixed(1)} unit="µg/m³" icon={<Wind className="text-gray-500" />} level={pm10Risk} message={`Umbral: ${thresholds.pm10}`} />
         <KPICard title="Dióxido de Carbono" value={Number(co2).toFixed(1)} unit="ppm" icon={<Activity className="text-orange-500" />} level={co2Risk} message={`Umbral: ${thresholds.co2}`} />
         <KPICard title="Temperatura" value={Number(temp).toFixed(1)} unit="°C" icon={<Thermometer className="text-purple-500" />} level="normal" message="Ambiente controlado" />
+        <KPICard title="Humedad" value={Number(hum).toFixed(1)} unit="%" icon={<Activity className="text-cyan-500" />} level="normal" message="Nivel óptimo" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
@@ -143,8 +144,6 @@ function HistoryView({ thresholds }) {
   const fetchHistory = async () => {
     try {
       let url = `${API_BASE_URL}/api/history`;
-      
-
       if (startDate && endDate) {
         url += `?start_date=${startDate}&end_date=${endDate}`;
       } else {
@@ -222,12 +221,11 @@ function HistoryView({ thresholds }) {
               <option value="pm10">Métrica: PM 10</option>
               <option value="co2">Métrica: CO2</option>
               <option value="temp">Métrica: Temp</option>
-              <option value="hum">Métrica: Humedad</option>
             </select>
           </div>
         </div>
         <button onClick={downloadCSV} className="bg-green-600 text-white px-5 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-green-100 hover:bg-green-700 transition-colors">
-          <Download size={18} /> Exportar Reporte Clínico
+          <Download size={18} /> Exportar Reporte
         </button>
       </div>
 
@@ -294,18 +292,15 @@ function SettingsView({ thresholds, updateThresholds }) {
     fetch(`${API_BASE_URL}/nodos`)
       .then(res => res.json())
       .then(data => {
-        if (data.length === 0) {
-          setNodes([{"id": "NODE-001", "ubicacion": "Av. del Maestro", "estado": "Activo", "rssi": -65, latitud: -0.1231, longitud: -78.4925}]);
-        } else {
-          setNodes(data);
-        }
+
+        setNodes(data);
       });
   };
 
   useEffect(() => { fetchNodes(); }, []);
 
   const handleAddNode = async () => {
-    const id = window.prompt("Ingrese el ID del nuevo nodo:");
+    const id = window.prompt("Ingrese el ID del nuevo nodo (ej. NODE-001):");
     if (!id) return;
     const ubicacion = window.prompt("Ingrese la ubicación del nodo:");
     if (!ubicacion) return;
@@ -384,6 +379,9 @@ function SettingsView({ thresholds, updateThresholds }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
+            {nodes.length === 0 && (
+              <tr><td colSpan="5" className="p-6 text-center text-gray-400 font-bold">No hay nodos registrados en MongoDB. Haz clic en 'Nuevo Punto de Monitoreo'.</td></tr>
+            )}
             {nodes.map((node) => (
               <tr key={node.id} className="hover:bg-gray-50/50 transition-colors">
                 <td className="p-6 font-bold text-blue-600">{node.id}</td>
@@ -554,10 +552,10 @@ export default function App() {
       .catch(err => console.error("Error al cargar configuración", err));
   }, []);
 
+
   const updateThresholds = async (newT) => {
-    setThresholds(newT);
     try {
-      await fetch(`${API_BASE_URL}/api/configuracion`, {
+      const res = await fetch(`${API_BASE_URL}/api/configuracion`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify({ 
@@ -566,8 +564,18 @@ export default function App() {
           limite_co2: Number(newT.co2) 
         })
       });
-      alert("¡Parámetros guardados! Aplicando a todas las sesiones de forma global.");
-    } catch(e) { console.error("Error al guardar", e); }
+      
+      if (res.ok) {
+        setThresholds(newT);
+        alert("¡Parámetros guardados exitosamente en la Base de Datos!");
+      } else {
+        const err = await res.json();
+        alert(`Error del Servidor: ${err.detail || 'Fallo de autorización o token inválido'}`);
+      }
+    } catch(e) { 
+      console.error("Error de conexión", e);
+      alert("Error de conexión con el backend. ¿Se desplegaron los últimos cambios en Render?");
+    }
   };
 
   return (
