@@ -4,7 +4,7 @@ import 'leaflet/dist/leaflet.css';
 import { 
   Wind, Activity, Thermometer, LayoutDashboard, Database, Download, 
   MapPin, Sliders, LogOut, ShieldAlert, Plus, RotateCw, Edit2, Check,
-  Wifi, Trash2, Clock
+  Wifi, Trash2, Calendar
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, 
@@ -16,7 +16,7 @@ import Login from './Login';
 
 const API_BASE_URL = "https://tesis-iot-ambiental.onrender.com";
 
-
+// --- FUNCIÓN AUXILIAR PARA SEGURIDAD JWT ---
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
   return {
@@ -88,7 +88,6 @@ function DashboardView({ data, history, thresholds }) {
         <KPICard title="PM 10" value={Number(pm10).toFixed(1)} unit="µg/m³" icon={<Wind className="text-gray-500" />} level={pm10Risk} message={`Umbral: ${thresholds.pm10}`} />
         <KPICard title="Dióxido de Carbono" value={Number(co2).toFixed(1)} unit="ppm" icon={<Activity className="text-orange-500" />} level={co2Risk} message={`Umbral: ${thresholds.co2}`} />
         <KPICard title="Temperatura" value={Number(temp).toFixed(1)} unit="°C" icon={<Thermometer className="text-purple-500" />} level="normal" message="Ambiente controlado" />
-        <KPICard title="Humedad" value={Number(hum).toFixed(1)} unit="%" icon={<Activity className="text-cyan-500" />} level="normal" message="Nivel óptimo" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
@@ -137,18 +136,30 @@ function DashboardView({ data, history, thresholds }) {
 
 function HistoryView({ thresholds }) {
   const [historicalData, setHistoricalData] = useState([]);
-  const [timeRange, setTimeRange] = useState('24h');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const [selectedMetric, setSelectedMetric] = useState('pm25');
 
   const fetchHistory = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/history?range_h=${timeRange}`);
+      let url = `${API_BASE_URL}/api/history`;
+      
+
+      if (startDate && endDate) {
+        url += `?start_date=${startDate}&end_date=${endDate}`;
+      } else {
+        url += `?range_h=24h`;
+      }
+      
+      const response = await fetch(url);
       const data = await response.json();
       setHistoricalData(data);
-    } catch (error) { console.error("Error cargando historial"); }
+    } catch (error) { 
+      console.error("Error cargando historial", error); 
+    }
   };
 
-  useEffect(() => { fetchHistory(); }, [timeRange]);
+  useEffect(() => { fetchHistory(); }, [startDate, endDate]);
 
   const evaluarRiesgoPM25 = (val) => {
     if (val > thresholds.pm25) return 'CRITICO (Excede OMS)';
@@ -193,12 +204,15 @@ function HistoryView({ thresholds }) {
         <div className="flex flex-wrap gap-4 items-center">
           
           <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
-            <Clock className="text-blue-600" size={16} />
-            <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="font-bold text-gray-700 outline-none bg-transparent text-sm cursor-pointer">
-              <option value="24h">Últimas 24 Horas</option>
-              <option value="7d">Últimos 7 Días</option>
-              <option value="30d">Últimos 30 Días</option>
-            </select>
+            <Calendar className="text-blue-600" size={16} />
+            <span className="text-xs font-bold text-gray-500 uppercase">Desde:</span>
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-transparent font-bold text-gray-700 outline-none text-sm cursor-pointer" />
+          </div>
+          
+          <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
+            <Calendar className="text-blue-600" size={16} />
+            <span className="text-xs font-bold text-gray-500 uppercase">Hasta:</span>
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-transparent font-bold text-gray-700 outline-none text-sm cursor-pointer" />
           </div>
 
           <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
@@ -296,7 +310,6 @@ function SettingsView({ thresholds, updateThresholds }) {
     const ubicacion = window.prompt("Ingrese la ubicación del nodo:");
     if (!ubicacion) return;
     
-
     const lat = window.prompt("Ingrese la Latitud (ej. -0.123):");
     const lng = window.prompt("Ingrese la Longitud (ej. -78.492):");
 

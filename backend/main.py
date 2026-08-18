@@ -15,7 +15,6 @@ from pymongo import MongoClient
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 
-# Cargar variables de entorno desde un archivo .env para eliminar el Hardcoding
 load_dotenv()
 
 # --- CONFIGURACIÓN DE SEGURIDAD (JWT) ---
@@ -51,9 +50,9 @@ TOPIC_COMANDOS = "utpl/comandos/"
 
 app = FastAPI(title="Backend HealthIoT - UTPL - Secure Version")
 
+# --- CONFIGURACIÓN ESTRICTA DE CORS ---
 app.add_middleware(
     CORSMiddleware,
-
     allow_origins=[
         "https://tesis-iot-ambiental.vercel.app",
     ],
@@ -158,7 +157,6 @@ async def obtener_configuracion():
 
 @app.put("/api/configuracion")
 async def actualizar_configuracion(config: ConfiguracionAlerta, token_data: dict = Depends(verificar_token)):
-    # Persistencia estricta utilizando update con upsert=True para asegurar sobreescritura limpia
     coleccion_config.update_one({"_id": "politicas_globales"}, {"$set": config.dict()}, upsert=True)
     return {"mensaje": "Políticas globales actualizadas exitosamente en base de datos"}
 
@@ -169,7 +167,6 @@ async def login(request: LoginRequest):
     if not usuario_db or not pwd_context.verify(request.password, usuario_db["password"]):
         raise HTTPException(status_code=401, detail="Credenciales de acceso incorrectas")
     
-    # Generación de un JWT real firmado con algoritmo simétrico HS256
     token_criptografico = generar_token(data={"sub": request.email})
     return {"token": token_criptografico, "user": request.email}
 
@@ -183,10 +180,20 @@ async def recibir_telemetria(datos: DatosSensor):
     return {"estado": "éxito"}
 
 @app.get("/api/history")
-async def get_history(range_h: str = "24h"):
-    tiempo_filtrado = f"{range_h}h" if range_h.isdigit() else range_h
+async def get_history(range_h: str = "24h", start_date: Optional[str] = None, end_date: Optional[str] = None):
+
+    if start_date and end_date:
+   
+        inicio = f"{start_date}T00:00:00Z"
+        fin = f"{end_date}T23:59:59Z"
+        filtro_tiempo = f'range(start: {inicio}, stop: {fin})'
+    else:
+        # Si no hay calendario, usamos el rango relativo (ej. últimas 24 horas)
+        tiempo_filtrado = f"{range_h}h" if range_h.isdigit() else range_h
+        filtro_tiempo = f'range(start: -{tiempo_filtrado})'
     
-    query = f'from(bucket: "{INFLUX_BUCKET}") |> range(start: -{tiempo_filtrado}) |> filter(fn: (r) => r["_measurement"] == "calidad_aire") |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value") |> sort(columns: ["_time"], desc: false)'
+    query = f'from(bucket: "{INFLUX_BUCKET}") |> {filtro_tiempo} |> filter(fn: (r) => r["_measurement"] == "calidad_aire") |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value") |> sort(columns: ["_time"], desc: false)'
+    
     result = query_api.query(org=INFLUX_ORG, query=query)
     return [{"time": r.get_time().strftime('%Y-%m-%d %H:%M:%S'), **r.values} for table in result for r in table.records]
 
