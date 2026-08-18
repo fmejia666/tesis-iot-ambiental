@@ -3,18 +3,27 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 import 'leaflet/dist/leaflet.css';
 import { 
   Wind, Activity, Thermometer, LayoutDashboard, Database, Download, 
-  MapPin, Sliders, Save, LogOut, ShieldAlert, Plus, RotateCw, Edit2, X, Check,
-  Battery, Wifi, Trash2, Calendar
+  MapPin, Sliders, LogOut, ShieldAlert, Plus, RotateCw, Edit2, Check,
+  Wifi, Trash2, Clock
 } from 'lucide-react';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, 
-  ResponsiveContainer, Legend, AreaChart, Area 
+  ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
 import { MapContainer, TileLayer, Circle, Popup, useMap } from 'react-leaflet';
 import { useSensorData } from './useSensorData';
 import Login from './Login';
 
 const API_BASE_URL = "https://tesis-iot-ambiental.onrender.com";
+
+
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token');
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`
+  };
+};
 
 function KPICard({ title, value, unit, icon, level, message }) {
   const styles = {
@@ -116,7 +125,7 @@ function DashboardView({ data, history, thresholds }) {
               <MapResizer />
               <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
               <Circle center={sensorLocation} radius={100} pathOptions={{ color: getMapRiskColor(pm25Risk), fillColor: getMapRiskColor(pm25Risk), fillOpacity: 0.3 }}>
-                <Popup>Estación Activa: NODE-001 (Av. del Maestro)</Popup>
+                <Popup>Estación Activa: NODE-001</Popup>
               </Circle>
             </MapContainer>
           </div>
@@ -128,25 +137,18 @@ function DashboardView({ data, history, thresholds }) {
 
 function HistoryView({ thresholds }) {
   const [historicalData, setHistoricalData] = useState([]);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [timeRange, setTimeRange] = useState('24h');
   const [selectedMetric, setSelectedMetric] = useState('pm25');
 
   const fetchHistory = async () => {
     try {
-      let url = `${API_BASE_URL}/api/history`;
-      if (startDate && endDate) {
-        url += `?start_date=${startDate}&end_date=${endDate}`;
-      } else {
-        url += `?range_h=24`;
-      }
-      const response = await fetch(url);
+      const response = await fetch(`${API_BASE_URL}/api/history?range_h=${timeRange}`);
       const data = await response.json();
       setHistoricalData(data);
     } catch (error) { console.error("Error cargando historial"); }
   };
 
-  useEffect(() => { fetchHistory(); }, [startDate, endDate]);
+  useEffect(() => { fetchHistory(); }, [timeRange]);
 
   const evaluarRiesgoPM25 = (val) => {
     if (val > thresholds.pm25) return 'CRITICO (Excede OMS)';
@@ -189,16 +191,16 @@ function HistoryView({ thresholds }) {
     <div className="space-y-6 animate-fade-in">
       <div className="bg-white p-6 rounded-2xl shadow-md border border-gray-100 flex flex-wrap justify-between items-center gap-4">
         <div className="flex flex-wrap gap-4 items-center">
+          
           <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
-            <Calendar className="text-blue-600" size={16} />
-            <span className="text-xs font-bold text-gray-500 uppercase">Desde:</span>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-transparent font-bold text-gray-700 outline-none text-sm cursor-pointer" />
+            <Clock className="text-blue-600" size={16} />
+            <select value={timeRange} onChange={(e) => setTimeRange(e.target.value)} className="font-bold text-gray-700 outline-none bg-transparent text-sm cursor-pointer">
+              <option value="24h">Últimas 24 Horas</option>
+              <option value="7d">Últimos 7 Días</option>
+              <option value="30d">Últimos 30 Días</option>
+            </select>
           </div>
-          <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
-            <Calendar className="text-blue-600" size={16} />
-            <span className="text-xs font-bold text-gray-500 uppercase">Hasta:</span>
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-transparent font-bold text-gray-700 outline-none text-sm cursor-pointer" />
-          </div>
+
           <div className="flex items-center gap-2 bg-gray-50 p-2 rounded-xl border border-gray-100">
             <Sliders className="text-purple-600" size={16} />
             <select value={selectedMetric} onChange={(e) => setSelectedMetric(e.target.value)} className="font-bold text-gray-700 outline-none bg-transparent text-sm cursor-pointer">
@@ -279,7 +281,7 @@ function SettingsView({ thresholds, updateThresholds }) {
       .then(res => res.json())
       .then(data => {
         if (data.length === 0) {
-          setNodes([{"id": "NODE-001", "ubicacion": "Av. del Maestro", "estado": "Activo", "rssi": -65}]);
+          setNodes([{"id": "NODE-001", "ubicacion": "Av. del Maestro", "estado": "Activo", "rssi": -65, latitud: -0.1231, longitud: -78.4925}]);
         } else {
           setNodes(data);
         }
@@ -293,12 +295,23 @@ function SettingsView({ thresholds, updateThresholds }) {
     if (!id) return;
     const ubicacion = window.prompt("Ingrese la ubicación del nodo:");
     if (!ubicacion) return;
+    
+
+    const lat = window.prompt("Ingrese la Latitud (ej. -0.123):");
+    const lng = window.prompt("Ingrese la Longitud (ej. -78.492):");
 
     try {
       const res = await fetch(`${API_BASE_URL}/nodos`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, ubicacion, estado: 'Activo', rssi: -50 })
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ 
+          id, 
+          ubicacion, 
+          estado: 'Activo', 
+          rssi: -50,
+          latitud: parseFloat(lat) || 0,
+          longitud: parseFloat(lng) || 0 
+        })
       });
       if (res.ok) {
         alert("Nodo registrado exitosamente en MongoDB");
@@ -312,19 +325,25 @@ function SettingsView({ thresholds, updateThresholds }) {
 
   const handleDelete = async (id) => {
     if (!window.confirm("¿Confirmas la eliminación de este nodo de la red?")) return;
-    await fetch(`${API_BASE_URL}/nodos/${id}`, { method: 'DELETE' });
+    await fetch(`${API_BASE_URL}/nodos/${id}`, { 
+      method: 'DELETE',
+      headers: getAuthHeaders() 
+    });
     fetchNodes();
   };
 
   const handleRestart = async (id) => {
-    await fetch(`${API_BASE_URL}/nodos/${id}/restart`, { method: 'POST' });
+    await fetch(`${API_BASE_URL}/nodos/${id}/restart`, { 
+      method: 'POST',
+      headers: getAuthHeaders()
+    });
     alert("Orden de reinicio enviada al hardware vía MQTT.");
   };
 
   const handleSaveEdit = async () => {
     await fetch(`${API_BASE_URL}/nodos/${editingNode.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       body: JSON.stringify(editingNode)
     });
     setEditingNode(null);
@@ -345,7 +364,7 @@ function SettingsView({ thresholds, updateThresholds }) {
           <thead className="bg-gray-50 text-[10px] font-black text-gray-400 uppercase tracking-widest">
             <tr>
               <th className="p-6">Nodo ID</th>
-              <th className="p-6">Ubicación</th>
+              <th className="p-6">Ubicación y Coordenadas</th>
               <th className="p-6">Estado</th>
               <th className="p-6">Señal</th>
               <th className="p-6 text-right">Acciones</th>
@@ -357,8 +376,19 @@ function SettingsView({ thresholds, updateThresholds }) {
                 <td className="p-6 font-bold text-blue-600">{node.id}</td>
                 <td className="p-6">
                   {editingNode?.id === node.id ? (
-                    <input className="border p-2 rounded-lg w-full" value={editingNode.ubicacion} onChange={e => setEditingNode({...editingNode, ubicacion: e.target.value})} />
-                  ) : <span className="text-gray-600 font-medium">{node.ubicacion}</span>}
+                    <div className="space-y-2">
+                      <input className="border p-2 rounded-lg w-full text-sm" placeholder="Ubicación" value={editingNode.ubicacion} onChange={e => setEditingNode({...editingNode, ubicacion: e.target.value})} />
+                      <div className="flex gap-2">
+                        <input type="number" className="border p-2 rounded-lg w-1/2 text-sm" placeholder="Latitud" value={editingNode.latitud} onChange={e => setEditingNode({...editingNode, latitud: parseFloat(e.target.value)})} />
+                        <input type="number" className="border p-2 rounded-lg w-1/2 text-sm" placeholder="Longitud" value={editingNode.longitud} onChange={e => setEditingNode({...editingNode, longitud: parseFloat(e.target.value)})} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <span className="text-gray-800 font-bold block">{node.ubicacion}</span>
+                      <span className="text-gray-400 text-xs font-mono">{node.latitud}, {node.longitud}</span>
+                    </div>
+                  )}
                 </td>
                 <td className="p-6">
                   <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${node.estado === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
@@ -371,7 +401,7 @@ function SettingsView({ thresholds, updateThresholds }) {
                     {node.rssi} dBm
                   </div>
                 </td>
-                <td className="p-6 text-right flex justify-end gap-2">
+                <td className="p-6 text-right flex justify-end gap-2 items-center h-full pt-8">
                   {editingNode?.id === node.id ? (
                     <button onClick={handleSaveEdit} className="p-2 bg-green-500 text-white rounded-lg"><Check size={18}/></button>
                   ) : (
@@ -393,7 +423,6 @@ function SettingsView({ thresholds, updateThresholds }) {
           <Sliders className="text-blue-600" /> Parámetros de Alerta Globales
         </h3>
         
-   
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="space-y-2">
             <label className="text-xs font-black text-gray-400 uppercase">Umbral Crítico PM 2.5</label>
@@ -482,7 +511,7 @@ function DashboardUnificado({ thresholds, updateThresholds }) {
               {activeTab === 'history' && 'Registros Históricos'}
               {activeTab === 'settings' && 'Control de Infraestructura'}
             </h2>
-            <p className="text-blue-600 font-black uppercase text-xs mt-2 tracking-widest">Estación Activa: NODE-001 (Av. del Maestro)</p>
+            <p className="text-blue-600 font-black uppercase text-xs mt-2 tracking-widest">Estación Activa: NODE-001</p>
           </div>
         </header>
 
@@ -517,7 +546,7 @@ export default function App() {
     try {
       await fetch(`${API_BASE_URL}/api/configuracion`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ 
           umbral_pm25: Number(newT.pm25), 
           umbral_pm10: Number(newT.pm10),
