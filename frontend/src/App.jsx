@@ -54,14 +54,17 @@ function MapResizer() {
 }
 
 function DashboardView({ data, history, thresholds }) {
-  const { metrics } = data;
+  // Respaldo robusto: si data.metrics no existe, busca en data o en el último registro de history
+  const latestFromHistory = Array.isArray(history) && history.length > 0 ? history[history.length - 1] : {};
+  const m = data?.metrics || data || latestFromHistory;
+
   const sensorLocation = [-0.1231680, -78.4925269]; 
 
-  const pm25 = metrics.pm25 ?? metrics.pm25_ugm3 ?? 0;
-  const pm10 = metrics.pm10 ?? metrics.pm10_ugm3 ?? 0;
-  const co2 = metrics.co2 ?? metrics.co2_ppm ?? 0;
-  const temp = metrics.temp ?? metrics.temperature_c ?? 0;
-  const hum = metrics.hum ?? metrics.humidity_pct ?? 0;
+  const pm25 = m?.pm25 ?? m?.pm25_ugm3 ?? latestFromHistory?.pm25 ?? 0;
+  const pm10 = m?.pm10 ?? m?.pm10_ugm3 ?? latestFromHistory?.pm10 ?? 0;
+  const co2 = m?.co2 ?? m?.co2_ppm ?? latestFromHistory?.co2 ?? 0;
+  const temp = m?.temp ?? m?.temperature_c ?? latestFromHistory?.temp ?? 0;
+  const hum = m?.hum ?? m?.humidity_pct ?? latestFromHistory?.hum ?? 0;
 
   const pm25Risk = pm25 > thresholds.pm25 ? 'danger' : (pm25 > (thresholds.pm25 * 0.5) ? 'warning' : 'normal');
   const pm10Risk = pm10 > thresholds.pm10 ? 'danger' : (pm10 > (thresholds.pm10 * 0.5) ? 'warning' : 'normal');
@@ -72,7 +75,6 @@ function DashboardView({ data, history, thresholds }) {
     if (level === 'warning') return '#eab308';
     return '#22c55e';
   };
-
 
   const metricasGraficos = [
     { key: 'pm25', name: 'Partículas PM 2.5', color: '#3b82f6' },
@@ -292,7 +294,6 @@ function SettingsView({ thresholds, updateThresholds }) {
     fetch(`${API_BASE_URL}/nodos`)
       .then(res => res.json())
       .then(data => {
-
         setNodes(data);
       });
   };
@@ -552,7 +553,6 @@ export default function App() {
       .catch(err => console.error("Error al cargar configuración", err));
   }, []);
 
-
   const updateThresholds = async (newT) => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/configuracion`, {
@@ -560,7 +560,7 @@ export default function App() {
         headers: getAuthHeaders(),
         body: JSON.stringify({ 
           umbral_pm25: Number(newT.pm25), 
-          umbral_pm10: Number(newT.pm10),
+          umbral_pm10: Number(newT.pm10), 
           limite_co2: Number(newT.co2) 
         })
       });
@@ -573,7 +573,7 @@ export default function App() {
         alert(`Error del Servidor: ${err.detail || 'Fallo de autorización o token inválido'}`);
       }
     } catch(e) { 
-      console.error("Error de conexión", e);
+      console.error("Error de conexión", e); 
       alert("Error de conexión con el backend. ¿Se desplegaron los últimos cambios en Render?");
     }
   };
